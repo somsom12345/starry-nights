@@ -113,7 +113,17 @@
       <div class="field"><label for="bStatus">Status</label><select id="bStatus"><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select></div>
       <div class="field"><label for="bAccess">Who can read</label><select id="bAccess"><option value="free">Everyone (free)</option><option value="members">Paid members only</option></select></div>
       <div class="field full"><label for="bUrl">Reading link</label><input id="bUrl" placeholder="https://"><span class="hint" id="bUrlHint">Where the "Start reading" button goes.</span></div>
-      <div class="field full"><span class="lbl">Cover colour</span><div class="swatches" id="bSwatches"></div></div>
+      <div class="field full"><span class="lbl">Cover image</span>
+        <div class="coverpick"><div class="covprev" id="bCovPrev"></div>
+          <div class="coverpick-actions">
+            <label class="btn sm" for="bCoverFile">Upload cover image</label>
+            <input id="bCoverFile" type="file" accept="image/*" hidden>
+            <button type="button" class="btn sm danger" id="bCoverRemove" hidden>Remove image</button>
+            <span class="hint">JPG, PNG or WebP. Portrait (2:3) looks best. It's resized automatically.</span>
+          </div>
+        </div>
+      </div>
+      <div class="field full" id="bSwatchField"><span class="lbl">Cover colour (used when there's no image)</span><div class="swatches" id="bSwatches"></div></div>
       <label class="check full"><input type="checkbox" id="bFeatured"> Feature on the front of the library</label>
     </div>
     <div class="actions"><button class="btn primary" type="submit" id="bSave">Save book</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="bErr"></span></div>
