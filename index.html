@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Starry Nights Translation</title>
+<meta name="description" content="Romance, fantasy and more, translated by Starry Nights Translation. Search and filter every book by genre.">
+<meta property="og:title" content="Starry Nights Translation">
+<meta property="og:description" content="Romance, fantasy and more. Search and filter every book by genre.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23A8205A'/%3E%3Cpath d='M16 6l2.6 6.3 6.8.5-5.2 4.4 1.6 6.6L16 20.3l-5.8 3.5 1.6-6.6-5.2-4.4 6.8-.5z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gloock&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brandrow">
+      <div class="brand"><h1 id="siteName">Starry Nights Translation</h1><p id="tagline">Romance, fantasy and everything in between.</p></div>
+      <div class="tabs" id="tabs" role="tablist" hidden>
+        <button type="button" role="tab" id="tabLibrary" aria-selected="true">Library</button>
+        <button type="button" role="tab" id="tabDash" aria-selected="false">Dashboard</button>
+      </div>
+    </div>
+    <div class="searchrow" id="searchRow">
+      <div class="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Search by title, author or genre" aria-label="Search books" autocomplete="off">
+      </div>
+      <div class="selects">
+        <select id="fStatus" aria-label="Status"><option value="all">Any status</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select>
+        <select id="fAccess" aria-label="Access"><option value="all">Free and members</option><option value="free">Free to read</option><option value="members">Members only</option></select>
+        <select id="fSort" aria-label="Sort"><option value="new">Newest</option><option value="az">Title A to Z</option><option value="chapters">Most chapters</option></select>
+      </div>
+    </div>
+    <div class="rail" id="rail" aria-label="Filter by genre"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="notice"></div>
+  <section id="library">
+    <div class="featured" id="featured" hidden><p class="eyebrow">Featured</p><div class="strip" id="strip"></div></div>
+    <div class="resultbar"><span class="count" id="count">Loading the shelf</span><button type="button" class="linkbtn" id="clear" hidden>Clear filters</button></div>
+    <div class="grid" id="grid"></div>
+    <div id="libEmpty" hidden></div>
+  </section>
+
+  <section id="dashboard" class="dash" hidden>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Books</h2>
+        <div class="tools"><input id="dbq" type="search" placeholder="Find a book" aria-label="Find a book"><button type="button" class="btn primary" id="addBook">Add book</button></div>
+      </div>
+      <div class="tscroll"><table><thead><tr><th>Title</th><th>Genres</th><th>Status</th><th>Access</th><th>Chapters</th><th></th></tr></thead><tbody id="bookRows"></tbody></table></div>
+      <div class="panel-empty" id="bookEmpty" hidden>No books yet. Add your first one.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Paid members</h2>
+        <div class="tools">
+          <input id="mq" type="search" placeholder="Find a member" aria-label="Find a member">
+          <select id="mStatus" aria-label="Member status"><option value="all">All statuses</option><option value="active">Active</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option></select>
+          <button type="button" class="btn primary" id="addMember">Add member</button>
+        </div>
+      </div>
+      <div class="tscroll"><table><thead><tr><th>Member</th><th>Tier</th><th>Status</th><th>Since</th><th>Renews</th><th>Notes</th><th></th></tr></thead><tbody id="memberRows"></tbody></table></div>
+      <div class="panel-empty" id="memberEmpty" hidden>No paid members yet. Add one when someone subscribes.</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h2>Site settings</h2></div>
+      <form class="panel-body form" id="cfgForm">
+        <div class="field"><label for="cName">Site name</label><input id="cName" maxlength="60"></div>
+        <div class="field"><label for="cTag">Tagline</label><input id="cTag" maxlength="120"></div>
+        <div class="field"><label for="cJoin">Membership link</label><input id="cJoin" placeholder="https://www.patreon.com/yourpage"><span class="hint">Readers see this on members-only books.</span></div>
+        <div class="field"><label for="cTiers">Member tiers</label><input id="cTiers" placeholder="Bronze, Silver, Gold"><span class="hint">Comma separated, lowest first.</span></div>
+        <div class="full actions"><button class="btn primary" type="submit">Save settings</button><span class="err" id="cfgErr"></span></div>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="foot" style="padding-left:max(0px,env(safe-area-inset-left,0px))">
+  <span id="footName">© Starry Nights Translation</span>
+  <span class="who" id="who"><button type="button" id="ownerLogin">Owner login</button></span>
+</footer>
+
+<dialog id="detailDlg" aria-label="Book details"><div class="dlg" id="detailBody"></div></dialog>
+
+<dialog id="loginDlg" class="narrow" aria-labelledby="loginTitle">
+  <form class="dlg" id="loginForm" novalidate>
+    <div class="dlg-head"><h2 id="loginTitle">Owner login</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="form" style="grid-template-columns:1fr">
+      <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
+      <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+    </div>
+    <div class="actions"><button class="btn primary" type="submit" id="lBtn">Log in</button><span class="err" id="lErr"></span></div>
+  </form>
+</dialog>
+
+<dialog id="bookDlg" aria-labelledby="bookDlgTitle">
+  <form class="dlg" id="bookForm" novalidate>
+    <div class="dlg-head"><h2 id="bookDlgTitle">Add book</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="form">
+      <div class="field full"><label for="bTitle">Title</label><input id="bTitle" required maxlength="140"></div>
+      <div class="field"><label for="bAuthor">Author or translator</label><input id="bAuthor" maxlength="80"></div>
+      <div class="field"><label for="bChapters">Chapters</label><input id="bChapters" type="number" min="0" step="1" inputmode="numeric"></div>
+      <div class="field full"><label for="bGenres">Genres</label><input id="bGenres" placeholder="Romance, Fantasy, Slow burn"><div class="suggest" id="bSuggest"></div></div>
+      <div class="field full"><label for="bSyn">Synopsis</label><textarea id="bSyn" maxlength="3000"></textarea></div>
+      <div class="field"><label for="bStatus">Status</label><select id="bStatus"><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select></div>
+      <div class="field"><label for="bAccess">Who can read</label><select id="bAccess"><option value="free">Everyone (free)</option><option value="members">Paid members only</option></select></div>
+      <div class="field full"><label for="bUrl">Reading link</label><input id="bUrl" placeholder="https://"><span class="hint" id="bUrlHint">Where the "Start reading" button goes.</span></div>
+      <div class="field full"><span class="lbl">Cover colour</span><div class="swatches" id="bSwatches"></div></div>
+      <label class="check full"><input type="checkbox" id="bFeatured"> Feature on the front of the library</label>
+    </div>
+    <div class="actions"><button class="btn primary" type="submit" id="bSave">Save book</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="bErr"></span></div>
+  </form>
+</dialog>
+
+<dialog id="memberDlg" aria-labelledby="memberDlgTitle">
+  <form class="dlg" id="memberForm" novalidate>
+    <div class="dlg-head"><h2 id="memberDlgTitle">Add member</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="form">
+      <div class="field"><label for="mName">Name</label><input id="mName" required maxlength="80"></div>
+      <div class="field"><label for="mContact">Email or handle</label><input id="mContact" maxlength="120"></div>
+      <div class="field"><label for="mTier">Tier</label><select id="mTier"></select></div>
+      <div class="field"><label for="mState">Status</label><select id="mState"><option value="active">Active</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option></select></div>
+      <div class="field"><label for="mSince">Member since</label><input id="mSince" type="date"></div>
+      <div class="field"><label for="mRenew">Next renewal</label><input id="mRenew" type="date"></div>
+      <div class="field full"><label for="mNotes">Notes</label><textarea id="mNotes" maxlength="1000" style="min-height:70px"></textarea></div>
+    </div>
+    <div class="actions"><button class="btn primary" type="submit" id="mSave">Save member</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="mErr"></span></div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
