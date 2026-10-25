@@ -181,7 +181,7 @@ $("ownerLogin").addEventListener("click",()=>{$("lErr").textContent="";$("loginD
 $("loginForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("lErr");err.textContent="";$("lBtn").disabled=true;
   const {error}=await sb.auth.signInWithPassword({email:$("lEmail").value.trim(),password:$("lPass").value});
   $("lBtn").disabled=false;
-  if(error){err.textContent="Wrong email or password.";return}
+  if(error){err.textContent="error.message";return}
   $("lPass").value="";await afterAuth();
   if(!S.canEdit){err.textContent="This account isn't set up as the site owner.";await sb.auth.signOut();return}
   $("loginDlg").close();toast("Logged in");setView("dashboard")});
