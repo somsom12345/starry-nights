@@ -181,7 +181,7 @@ $("ownerLogin").addEventListener("click",()=>{$("lErr").textContent="";$("loginD
 $("loginForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("lErr");err.textContent="";$("lBtn").disabled=true;
   const {error}=await sb.auth.signInWithPassword({email:$("lEmail").value.trim(),password:$("lPass").value});
   $("lBtn").disabled=false;
-  if(error){err.textContent="error.message";return}
+  if(error){const m=(error.message||"").toLowerCase();err.textContent=m.includes("not confirmed")?"This email isn't confirmed. In Supabase, delete the user and add it again with Auto Confirm ticked.":m.includes("invalid login")?"Wrong email or password (Supabase says: "+error.message+")":"Login failed: "+error.message;return}
   $("lPass").value="";await afterAuth();
   if(!S.canEdit){err.textContent="This account isn't set up as the site owner.";await sb.auth.signOut();return}
   $("loginDlg").close();toast("Logged in");setView("dashboard")});

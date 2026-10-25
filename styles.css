@@ -1,3 +1,9 @@
+/* Base reset */
+[hidden]{display:none!important}
+html{-webkit-text-size-adjust:100%}
+body{margin:0}
+img{max-width:100%}
+
 /* Layout: sticky reading-room header with search, genre chip rail, cover grid; owner dashboard swaps in below the same header. */
 :root{
   --bg:#F3F1F7; --surface:#FFFFFF; --sunk:#EAE6F0; --ink:#1D1A2B; --muted:#676179; --line:#DCD6E6;
