@@ -689,7 +689,8 @@ function stashForms(){if(CH_PAGE.parentNode!==$("chStash"))$("chStash").append(C
 function renderAdmin(col,id){stashForms();
   if(!COLS_OK.includes(col))col="novels";
   for(const a of document.querySelectorAll(".anav a"))a.dataset.col===col?a.setAttribute("aria-current","page"):a.removeAttribute("aria-current");
-  if(col!=="chapter")document.title=(col==="settings"?"Settings":adminCfg(col).title)+" · Dashboard";
+  if(col!=="chapter")document.title=(col==="settings"?"Settings":col==="about"?"About page":adminCfg(col).title)+" · Dashboard";
+  if(col==="about"){for(const a2 of document.querySelectorAll(".anav a"))a2.dataset.col==="about"?a2.setAttribute("aria-current","page"):a2.removeAttribute("aria-current");renderAboutAdmin();return}
   if(col!=="novels"||!id)S.edOpen=false;
   if(col!=="chapter")S.chOpen=false;
   if(col==="novels"&&id){renderNovelEditor(id);return}
@@ -699,7 +700,7 @@ function renderAdmin(col,id){stashForms();
   if(col==="chapters"&&id){st.filters.book=id;st.q="";st.page=1}
   if(S.list?.cfg.col!==col||id)st.sel.clear();
   mountList(cfg,st)}
-const COLS_OK=["novels","chapters","genres","members","tiers","memberships","comments","settings","chapter"];
+const COLS_OK=["novels","chapters","genres","members","tiers","memberships","comments","about","settings","chapter"];
 function mountList(cfg,st,container){
   const E={bulk:h("div",{class:"abulk",hidden:true}),thead:h("thead"),tbody:h("tbody"),empty:h("div",{class:"aempty",hidden:true}),pager:h("div",{class:"apager"}),count:h("span",{class:"acount"})};
   S.list={cfg,st,el:E};
@@ -1313,6 +1314,108 @@ async function bookCollectionsSection(bookId,seq){if(!S.commReady)return null;co
       x.note?h("p",{class:"bcnote",text:"“"+x.note+"”"}):null,
       h("span",{class:"bcfoot"},avatar(x.owner_name,x.user_id,"sm"),h("span",{},h("b",{text:x.title}),h("span",{class:"note",text:" by "+x.owner_name})),h("span",{class:"clikes"},heartIcon(false),h("span",{text:x.likes||0})))))))}
 
+/* ---------- About page ---------- */
+const ABOUT_DEFAULT={kicker:"meet the",headline:"translators",
+  intro:"Starry Nights Translation is a small team of readers who fell in love with stories that hadn't been translated into English yet.\n\nWe translate web novels by hand, one careful chapter at a time, keeping the jokes, the idioms and the feelings that make them worth reading.",
+  team:[{name:"Storm",role:"Founder & translator",bio:"Reads too many romance novels and argues with dictionaries for fun.",photo_url:"",photo_path:""}],
+  doTitle:"what we do",
+  cards:[{title:"Translation",text:"Every chapter is translated by a person, not dumped through a machine. Names, honorifics and wordplay are handled with care."},
+    {title:"Editing",text:"A second pair of eyes checks each chapter for flow, typos and consistency with our glossary before it goes up."},
+    {title:"Releases",text:"Regular chapters for everyone, advance chapters for supporters on Patreon, and a Discord to scream about cliffhangers with us."}],
+  workTitle:"our novels",workNote:"Pick a cover and start reading. New chapters land every week.",
+  contactTitle:"say hello",contactText:"Want to join the team, suggest a novel or just say hi? We'd love to hear from you.",email:"",discord:""};
+function aboutData(){const a=S.config.about&&typeof S.config.about==="object"?S.config.about:{};return Object.assign({},ABOUT_DEFAULT,a,{team:Array.isArray(a.team)&&a.team.length?a.team:ABOUT_DEFAULT.team,cards:Array.isArray(a.cards)&&a.cards.length?a.cards:ABOUT_DEFAULT.cards})}
+function paras(t){return String(t||"").split(/\n\s*\n/).map(x=>x.trim()).filter(Boolean).map(x=>h("p",{text:x}))}
+function bowSvg(){const s=document.createElementNS("http://www.w3.org/2000/svg","svg");s.setAttribute("viewBox","0 0 120 80");s.setAttribute("class","bow");s.setAttribute("aria-hidden","true");
+  s.innerHTML='<path d="M60 38 C40 10 8 6 10 30 C12 50 40 46 60 40Z" fill="var(--ab-ribbon)"/><path d="M60 38 C80 10 112 6 110 30 C108 50 80 46 60 40Z" fill="var(--ab-ribbon)"/><path d="M58 40 L40 78 L50 74 L56 80 L62 42Z" fill="var(--ab-ribbon-d)"/><path d="M62 40 L80 78 L70 74 L64 80 L58 42Z" fill="var(--ab-ribbon-d)"/><ellipse cx="60" cy="39" rx="9" ry="8" fill="var(--ab-ribbon-d)"/><path d="M22 26 C30 20 44 24 54 34" stroke="rgba(255,255,255,.35)" stroke-width="2" fill="none"/><path d="M98 26 C90 20 76 24 66 34" stroke="rgba(255,255,255,.35)" stroke-width="2" fill="none"/>';return s}
+function starSvg(cls){const s=document.createElementNS("http://www.w3.org/2000/svg","svg");s.setAttribute("viewBox","0 0 24 24");s.setAttribute("class",cls||"abstar");s.setAttribute("aria-hidden","true");
+  s.innerHTML='<path d="M12 1.5l2.7 7.1 7.6.4-5.9 4.8 2 7.4L12 17l-6.4 4.2 2-7.4L1.7 9l7.6-.4z" fill="currentColor"/>';return s}
+function renderAbout(){const el=$("aboutPage");const a=aboutData();document.title="About us · "+siteName();
+  const nm=siteName().trim().split(/\s+/);const caps=nm.length>=3?nm.pop():"";
+  const team=a.team.filter(t=>t&&t.name);
+  const tilt=i=>[-4,3,-2,5,-3][i%5];
+  const pol=(t,i)=>h("figure",{class:"pol tape",style:`--r:${tilt(i)}deg`},
+    t.photo_url?h("img",{src:t.photo_url,alt:t.name,loading:"lazy"}):h("span",{class:"polph",style:`--av:${hue(t.name)}`,"aria-hidden":"true",text:t.name.trim().charAt(0).toUpperCase()}),
+    h("figcaption",{},h("b",{text:t.name}),t.role?h("span",{text:t.role}):null));
+  const works=[...S.books].sort((x,y)=>(y.featured?1:0)-(x.featured?1:0)||chCount(y)-chCount(x)).slice(0,5);
+  const contact=[isUrl(S.config.join_url)?h("a",{class:"abbtn",href:S.config.join_url,target:"_blank",rel:"noopener",text:"Support us on Patreon ↗"}):null,
+    isUrl(a.discord)?h("a",{class:"abbtn alt",href:a.discord,target:"_blank",rel:"noopener",text:"Join our Discord ↗"}):null,
+    a.email?h("span",{class:"abmail"},h("span",{text:"Email: "}),h("b",{text:a.email}),h("button",{type:"button",class:"abcopy",text:"Copy",onclick:async e=>{try{await navigator.clipboard.writeText(a.email);e.target.textContent="Copied"}catch{e.target.textContent="Select it above"}}})):null];
+  fillEl(el,
+    /* band 1: meet the team */
+    h("section",{class:"abband b1","aria-labelledby":"abH1"},
+      h("div",{class:"abmeet"},
+        h("h1",{id:"abH1",class:"abh"},h("span",{class:"k",text:a.kicker}),h("span",{class:"big",text:a.headline})),
+        h("div",{class:"abintro"},...paras(a.intro))),
+      h("div",{class:"abplate"},h("div",{class:"lace"},h("div",{class:"plate"},starSvg("pstar"),h("span",{class:"pscript",text:nm.join(" ").toLowerCase()}),caps?h("span",{class:"pcaps",text:caps}):null,
+        h("span",{class:"psince",text:"est. "+(S.books.length?new Date(Math.min(...S.books.map(b=>Date.parse(b.created_at)||Date.now()))).getFullYear():new Date().getFullYear())}))),
+        h("span",{class:"charm","aria-hidden":"true"})),
+      h("div",{class:"abstrip"},...team.slice(0,4).map(pol))),
+    team.some(t=>t.bio)?h("section",{class:"abteam"},...team.filter(t=>t.bio).map((t,i)=>h("article",{class:"tnote",style:`--r:${[1.5,-1.2,1,-1.6][i%4]}deg`},h("p",{class:"tname"},h("span",{class:"scr",text:t.name}),t.role?h("span",{class:"trole",text:t.role}):null),h("p",{text:t.bio})))):null,
+    /* band 2: what we do */
+    h("section",{class:"abband b2","aria-labelledby":"abH2"},
+      h("div",{class:"abcards"},...a.cards.filter(c=>c&&c.title).map(c=>h("article",{class:"abcard"},h("h3",{class:"scr",text:c.title}),h("p",{text:c.text||""})))),
+      h("div",{class:"abstack"},h("span",{class:"paper p1"}),h("span",{class:"paper p2"}),
+        h("div",{class:"notebook"},bowSvg(),h("h2",{id:"abH2",text:a.doTitle}),h("p",{class:"nbsub",text:S.books.length+" "+(S.books.length===1?"novel":"novels")+" · "+Object.values(S.counts).reduce((x,y)=>x+y,0).toLocaleString()+" chapters on the site"})))),
+    /* band 3: our work */
+    h("section",{class:"abband b3","aria-labelledby":"abH3"},
+      h("div",{class:"abwork"},
+        h("div",{class:"torn"},h("h2",{id:"abH3"},h("span",{class:"k",text:"some of"}),h("span",{class:"big",text:a.workTitle})),h("p",{text:a.workNote})),
+        works.length?h("div",{class:"abcovers"},...works.map((b,i)=>h("a",{class:"pol cov",href:"#book/"+b.id,style:`--r:${[-6,4,-2,7,-4][i%5]}deg`},cover(b,true),h("span",{class:"pcap",text:b.title})))):h("p",{class:"note",text:"Novels you add will show up here."}),
+        h("span",{class:"stamp","aria-hidden":"true"},starSvg("sstar"),h("span",{text:"translated with love"})))),
+    /* band 4: say hello */
+    h("section",{class:"abband b4","aria-labelledby":"abH4"},
+      h("div",{class:"hello tape"},h("h2",{id:"abH4",class:"scr",text:a.contactTitle}),...paras(a.contactText),
+        contact.some(Boolean)?h("div",{class:"abacts"},...contact):null,
+        h("p",{class:"abhome"},h("a",{href:"#browse",text:"Browse all novels →"})))))}
+
+/* About page editor (dashboard) */
+function renderAboutAdmin(){S.list=null;const a=JSON.parse(JSON.stringify(aboutData()));
+  const err=h("p",{class:"err",role:"alert",style:"margin:0"});let dirty=false;const mark=()=>{dirty=true;dot.hidden=false};
+  const dot=h("span",{class:"dirty",hidden:true},"Unsaved changes");
+  const fld=(label,val,set,opts={})=>{const id="ab_"+Math.random().toString(36).slice(2,8);const inp=opts.area?h("textarea",{id,maxlength:opts.max||"2000",style:opts.tall?"min-height:150px":"min-height:80px"}):h("input",{id,maxlength:opts.max||"120",placeholder:opts.ph||""});
+    inp.value=val||"";inp.addEventListener("input",()=>{set(inp.value);mark()});return h("div",{class:"field"+(opts.full?" full":"")},h("label",{for:id,text:label}),inp,opts.hint?h("span",{class:"hint",text:opts.hint}):null)};
+  const teamBox=h("div",{class:"abteamed"});
+  const drawTeam=()=>{fillEl(teamBox,...a.team.map((t,i)=>{const ph=h("div",{class:"abph"},t.photo_url?h("img",{src:t.photo_url,alt:""}):h("span",{class:"polph",style:`--av:${hue(t.name||"?")}`,text:(t.name||"?").charAt(0).toUpperCase()}));
+      const file=h("input",{type:"file",accept:"image/*",hidden:true,onchange:async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;if(!/^image\//.test(f.type)){err.textContent="That file isn't an image.";return}
+        err.textContent="Uploading photo…";try{const up=await uploadImage(f,700);if(t.photo_path)await removeCoverFile(t.photo_path);t.photo_url=up.url;t.photo_path=up.path;err.textContent="";mark();drawTeam()}catch(x){err.textContent="Couldn't upload the photo. Check you're signed in."}}});
+      return h("div",{class:"abmem"},ph,h("div",{class:"form",style:"flex:1;min-width:0"},
+          fld("Name",t.name,v=>t.name=v,{max:"40"}),fld("Role",t.role,v=>t.role=v,{max:"60",ph:"Translator, Editor…"}),
+          fld("Short bio",t.bio,v=>t.bio=v,{area:true,max:"300",full:true})),
+        h("div",{class:"abmemacts"},h("label",{class:"btn sm"},file,t.photo_url?"Change photo":"Add photo"),t.photo_url?h("button",{type:"button",class:"btn sm",text:"Remove photo",onclick:()=>{t.photo_url="";mark();drawTeam()}}):null,
+          a.team.length>1?h("button",{type:"button",class:"btn sm danger",text:"Remove person",onclick:()=>{a.team.splice(i,1);mark();drawTeam()}}):null))}),
+      a.team.length<6?h("button",{type:"button",class:"btn sm addrow",text:"+ Add person",onclick:()=>{a.team.push({name:"",role:"",bio:"",photo_url:"",photo_path:""});mark();drawTeam()}}):null)};
+  const cardsBox=h("div",{class:"form"});
+  const drawCards=()=>{fillEl(cardsBox,...a.cards.map((c,i)=>h("div",{class:"field full abcarded"},
+      h("div",{class:"form"},fld("Card "+(i+1)+" title",c.title,v=>c.title=v,{max:"40"}),fld("Text",c.text,v=>c.text=v,{area:true,max:"400",full:true})),
+      a.cards.length>1?h("button",{type:"button",class:"btn sm danger",text:"Remove card",onclick:()=>{a.cards.splice(i,1);mark();drawCards()}}):null)),
+    a.cards.length<4?h("button",{type:"button",class:"btn sm addrow",text:"+ Add card",onclick:()=>{a.cards.push({title:"",text:""});mark();drawCards()}}):null)};
+  drawTeam();drawCards();
+  const save=async()=>{err.textContent="";if(!S.aboutReady&&S.config.about===undefined){}
+    const clean={...a,team:a.team.filter(t=>t.name&&t.name.trim()).map(t=>({name:t.name.trim(),role:(t.role||"").trim(),bio:(t.bio||"").trim(),photo_url:t.photo_url||"",photo_path:t.photo_path||""})),cards:a.cards.filter(c=>c.title&&c.title.trim())};
+    if(clean.discord&&!isUrl(clean.discord)){err.textContent="The Discord link needs to start with https://";return}
+    if(clean.email&&!/^\S+@\S+\.\S+$/.test(clean.email)){err.textContent="That email address doesn't look right.";return}
+    const r=await sb.from("site_config").update({about:clean}).eq("id",1);
+    if(r.error){err.textContent=/about/.test(r.error.message||"")?"Run update-about.sql in Supabase first, then save again.":"Couldn't save: "+r.error.message;return}
+    S.config.about=clean;dirty=false;dot.hidden=true;toast("About page saved")};
+  fillEl($("amain"),crumbs("About page"),
+    h("div",{class:"ahead"},h("h1",{text:"About page"}),h("a",{class:"btn sm",href:"#about",target:"_blank",rel:"noopener",text:"View page ↗"}),dot,h("button",{type:"button",class:"btn primary",style:"margin-left:auto",text:"Save changes",onclick:save})),
+    h("p",{class:"aintro",text:"Everything on your About us page. Leave a field as it is to keep the starter text, and change anything that doesn't fit."}),err,
+    h("div",{class:"apanel abed"},
+      h("h2",{class:"edsec",text:"Top: meet the team"}),
+      h("div",{class:"form"},fld("Small heading",a.kicker,v=>a.kicker=v,{max:"30",ph:"meet the"}),fld("Big heading",a.headline,v=>a.headline=v,{max:"30",ph:"translators"}),
+        fld("Introduction",a.intro,v=>a.intro=v,{area:true,tall:true,max:"1500",full:true,hint:"Leave a blank line between paragraphs."})),
+      h("h3",{class:"edsub",text:"Team members"}),h("p",{class:"hint",style:"margin:-6px 0 4px",text:"Up to 4 appear as photos at the top. People with a bio also get a note card."}),teamBox,
+      h("h2",{class:"edsec",text:"Middle: what we do"}),
+      h("div",{class:"form"},fld("Title on the notebook",a.doTitle,v=>a.doTitle=v,{max:"30"})),cardsBox,
+      h("h2",{class:"edsec",text:"Bottom: your novels and contact"}),
+      h("div",{class:"form"},fld("Novels heading",a.workTitle,v=>a.workTitle=v,{max:"30",ph:"our novels"}),fld("Line under it",a.workNote,v=>a.workNote=v,{max:"160"}),
+        fld("Contact heading",a.contactTitle,v=>a.contactTitle=v,{max:"30"}),fld("Email to show",a.email,v=>a.email=v,{max:"120",ph:"hello@…"}),
+        fld("Contact text",a.contactText,v=>a.contactText=v,{area:true,max:"600",full:true}),
+        fld("Discord invite link",a.discord,v=>a.discord=v,{max:"200",ph:"https://discord.gg/…",full:true,hint:"Your Patreon button uses the membership link from Settings."})),
+      h("div",{class:"actions",style:"margin-top:8px"},h("button",{type:"button",class:"btn primary",text:"Save changes",onclick:save}))));
+  S.aboutDirty=()=>dirty}
+
 /* ---------- Routing ---------- */
 function parseHash(){const raw=decodeURIComponent(location.hash.replace(/^#\/?/,""));if(/access_token=|error_description=|type=recovery/.test(raw))return{name:"home"};const [name,id,sub]=raw.split("/");
   if((name==="book"||name==="read")&&id)return{name,id};
@@ -1320,14 +1423,15 @@ function parseHash(){const raw=decodeURIComponent(location.hash.replace(/^#\/?/,
   if(name==="manage"&&id)return{name:"admin",col:"chapters",id};
   if(name==="dashboard")return{name:"admin",col:"novels"};
   if((name==="collection"||name==="reader")&&id)return{name,id};
-  if(name==="browse"||name==="collections")return{name};return{name:"home"}}
+  if(name==="browse"||name==="collections"||name==="about")return{name};return{name:"home"}}
 function go(hash){if(location.hash.replace(/^#/,"")===hash)route();else location.hash=hash}
-const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin",collections:"collsPage",collection:"collPage",reader:"userPage"};
+const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin",collections:"collsPage",collection:"collPage",reader:"userPage",about:"aboutPage"};
 function route(){
   const prev=S.route;let r=parseHash();
   const same=(a,b)=>a.name===b.name&&a.col===b.col&&a.id===b.id;
   if(S.edDirty&&prev.name==="admin"&&prev.col==="novels"&&prev.id&&!(r.name==="admin"&&r.col==="novels"&&r.id===prev.id)){
     if(!confirm("You have unsaved changes to this novel. Leave without saving?")){history.replaceState(null,"","#admin/novels/"+prev.id);return}clearDirty()}
+  if(prev.col==="about"&&S.aboutDirty?.()&&!same(prev,r)){if(!confirm("You have unsaved changes to the About page. Leave without saving?")){history.replaceState(null,"","#admin/about");return}S.aboutDirty=null}
   if(S.chDirty&&prev.col==="chapter"&&!same(prev,r)){
     if(!confirm("You have unsaved changes to this chapter. Leave without saving? (A copy stays saved on this device.)")){history.replaceState(null,"","#admin/chapter/"+(prev.id||"new")+(prev.book&&prev.id==="new"?"/"+prev.book:""));return}chClearDirty()}
   if(prev.name==="admin"&&prev.col==="novels"&&prev.id&&!(r.name==="admin"&&r.col==="novels"&&r.id===prev.id))S.edOpen=false;
@@ -1337,23 +1441,24 @@ function route(){
   S.route=r;const seq=++S.seq;
   for(const [k,id] of Object.entries(VIEWS))$(id).hidden=k!==r.name;
   document.body.classList.toggle("reading",r.name==="read");document.body.classList.toggle("browsing",r.name==="browse");document.body.classList.toggle("is-admin",r.name==="admin");
-  const cur={navHome:r.name==="home",navBrowse:r.name==="browse",navColls:/^(collections|collection|reader)$/.test(r.name),navDash:r.name==="admin"};
+  const cur={navHome:r.name==="home",navBrowse:r.name==="browse",navColls:/^(collections|collection|reader)$/.test(r.name),navAbout:r.name==="about",navDash:r.name==="admin"};
   for(const [id,on] of Object.entries(cur))on?$(id).setAttribute("aria-current","page"):$(id).removeAttribute("aria-current");
   closeResults();if(r.name==="browse"&&$("hq").value!==S.q)$("hq").value=S.q;
   applyReaderPrefs(r.name==="read");
-  if(!/^(book|read|admin|collections|collection|reader)$/.test(r.name))document.title=siteName();
+  if(!/^(book|read|admin|collections|collection|reader|about)$/.test(r.name))document.title=siteName();
   if(keep(r.name)){r.name==="home"?renderHome(seq):renderLibrary();if(prev.name!==r.name)requestAnimationFrame(()=>window.scrollTo(0,(S.scroll||{})[r.name]||0))}
   else{window.scrollTo(0,0);
     if(r.name==="admin")renderAdmin(r.col,r.id);
     else if(r.name==="book")renderBook(r.id,seq);
     else if(r.name==="collections")renderCollections(seq);
+    else if(r.name==="about")renderAbout();
     else if(r.name==="collection")renderCollection(r.id,seq);
     else if(r.name==="reader")renderUser(r.id,seq);
     else if(r.name==="read"){if(sb)renderReader(r.id,seq)}}
 }
 function rerender(){const r=S.route,seq=S.seq;
-  if(r.name==="browse")renderLibrary();else if(r.name==="home")renderHome(seq);else if(r.name==="admin"){if(r.col==="chapter"&&S.chOpen){}else if(r.col==="novels"&&r.id&&S.edOpen&&(r.id==="new"||S.books.some(b=>b.id===r.id))){if(r.id!=="new"&&!S.edDirty)edMeta(S.books.find(b=>b.id===r.id));refreshList()}else renderAdmin(r.col,(r.col==="novels"||r.col==="chapter")?r.id:null)}
-  else if(r.name==="book")renderBook(r.id,seq);else if(r.name==="collections")renderCollections(seq)}
+  if(r.name==="browse")renderLibrary();else if(r.name==="home")renderHome(seq);else if(r.name==="admin"){if((r.col==="chapter"&&S.chOpen)||r.col==="about"){}else if(r.col==="novels"&&r.id&&S.edOpen&&(r.id==="new"||S.books.some(b=>b.id===r.id))){if(r.id!=="new"&&!S.edDirty)edMeta(S.books.find(b=>b.id===r.id));refreshList()}else renderAdmin(r.col,(r.col==="novels"||r.col==="chapter")?r.id:null)}
+  else if(r.name==="book")renderBook(r.id,seq);else if(r.name==="collections")renderCollections(seq);else if(r.name==="about")renderAbout()}
 window.addEventListener("hashchange",route);
 
 /* ---------- Wiring ---------- */
