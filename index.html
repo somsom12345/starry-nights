@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=10">
+<link rel="stylesheet" href="styles.css?v=11">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -31,6 +31,7 @@
       <a href="#" id="navHome" class="nh">Home</a>
       <a href="#browse" id="navBrowse">Browse</a>
       <a href="#admin/novels" id="navDash" hidden>Dashboard</a>
+      <div class="dd" id="ddAcct"><button type="button" class="iconbtn" id="acctBtn" aria-haspopup="true" aria-expanded="false" aria-label="Sign in"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></button><div class="ddpanel menu acct" id="acctMenu" hidden></div></div>
       <button type="button" class="iconbtn themebtn" id="themeBtn" aria-label="Switch theme"></button>
     </nav>
   </div>
@@ -108,8 +109,9 @@
         <a href="#admin/novels" data-col="novels">Novels</a>
         <a href="#admin/chapters" data-col="chapters">Chapters</a>
         <a href="#admin/genres" data-col="genres">Genres</a>
-        <p class="agroup">Readers</p>
-        <a href="#admin/members" data-col="members">Paid members</a>
+        <p class="agroup">Subscriptions</p>
+        <a href="#admin/tiers" data-col="tiers">Tiers</a>
+        <a href="#admin/memberships" data-col="memberships">Memberships</a>
         <p class="agroup">Site</p>
         <a href="#admin/settings" data-col="settings">Settings</a>
       </nav>
@@ -134,32 +136,103 @@
   <span class="who" id="who"><button type="button" id="ownerLogin">Owner login</button></span>
 </footer>
 
-<dialog id="chapterDlg" class="wide" aria-labelledby="chDlgTitle">
-  <form class="dlg" id="chapterForm" novalidate>
-    <div class="dlg-head"><h2 id="chDlgTitle">Add chapter</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
-    <div class="form chform">
-      <div class="field full"><label for="chBookSel">Novel</label><select id="chBookSel"></select></div>
-      <div class="field"><label for="chNum">Chapter number</label><input id="chNum" type="number" min="0" step="any" inputmode="decimal" required></div>
-      <div class="field"><label for="chTitle">Chapter title (optional)</label><input id="chTitle" maxlength="160"></div>
-      <div class="field full"><label for="chBody">Chapter text</label>
-        <textarea id="chBody" spellcheck="true"></textarea>
-        <div class="chmeta"><span class="hint">Paste straight from Google Docs or Word: bold and italics are kept. A line with *** becomes a scene break.</span><span class="mono" id="chWords">0 words</span></div>
+<div id="chStash" hidden>
+<div class="edpage chpage" id="chPage">
+  <form id="chapterForm" class="edform" novalidate>
+    <div class="edbar">
+      <div class="edhead"><div class="crumbs" id="chCrumbs"></div><h1 id="chDlgTitle">New chapter</h1><p class="edmeta" id="chMeta"></p></div>
+      <div class="edacts">
+        <span class="dirty" id="chDirty" hidden>Unsaved changes</span>
+        <button type="button" class="btn sm" id="chDraftBtn">Save draft</button>
+        <div class="dd splitbtn" id="ddChPub"><button type="submit" class="btn primary" id="chSave">Publish changes</button><button type="button" class="btn primary caret" id="chPubMore" aria-haspopup="true" aria-expanded="false" aria-label="More publish options"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          <div class="ddpanel menu" id="chPubMenu" hidden><button type="button" class="mi" id="chSaveNext">Publish and add next chapter</button><button type="button" class="mi" id="chDraftNext">Save draft and add next chapter</button></div></div>
+        <div class="dd" id="ddChMore"><button type="button" class="iconbtn" id="chMore" aria-haspopup="true" aria-expanded="false" aria-label="More actions">⋮</button><div class="ddpanel menu" id="chMenu" hidden></div></div>
       </div>
-      <label class="check full"><input type="checkbox" id="chPub" checked> Published (readers can see it). Untick to save as a draft.</label>
+      <p class="err edtop" id="chErr" role="alert"></p>
     </div>
-    <div class="actions"><button class="btn primary" type="submit" id="chSave">Save chapter</button><button class="btn" type="button" id="chSaveNext">Save and add next</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="chErr"></span></div>
+    <div class="edmain">
+      <div class="tabs2" role="tablist" aria-label="Chapter sections"><button type="button" role="tab" id="tabContent" aria-selected="true" aria-controls="paneContent">Content</button><button type="button" role="tab" id="tabNotes" aria-selected="false" aria-controls="paneNotes">Notes</button></div>
+      <div id="paneContent" role="tabpanel" aria-labelledby="tabContent" class="pane">
+        <div class="field"><label for="chTitle">Title</label><input id="chTitle" maxlength="160" placeholder="e.g. Infinite Escape (24)"></div>
+        <div class="field"><span class="lbl" id="chBodyLbl">Content <span class="req" aria-hidden="true">*</span></span>
+          <div class="rtebar" role="toolbar" aria-label="Formatting">
+            <button type="button" data-cmd="bold" title="Bold (Ctrl+B)" aria-label="Bold"><b>B</b></button>
+            <button type="button" data-cmd="italic" title="Italic (Ctrl+I)" aria-label="Italic"><i>I</i></button>
+            <button type="button" data-cmd="scene" title="Scene break" aria-label="Insert scene break">✦ ✦ ✦</button>
+            <button type="button" data-cmd="removeFormat" title="Clear formatting" aria-label="Clear formatting">Clear</button>
+            <span class="mono" id="chWords">0 words</span>
+          </div>
+          <div id="chBody" class="rte" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="chBodyLbl" spellcheck="true"></div>
+          <span class="hint">Paste straight from Google Docs or Word: bold and italics are kept. Your text is saved on this device as you type, in case the page closes.</span>
+        </div>
+      </div>
+      <div id="paneNotes" role="tabpanel" aria-labelledby="tabNotes" class="pane" hidden>
+        <div class="field"><label for="chNote">Translator's note</label><textarea id="chNote" maxlength="3000" placeholder="Thanks for reading! Glossary, a joke about the cliffhanger, a reminder about advance chapters…"></textarea><span class="hint">Shown to readers in a box at the end of the chapter. Leave it empty to show nothing.</span></div>
+      </div>
+    </div>
+    <aside class="edside">
+      <div class="field"><label for="chBookSel">Novel <span class="req" aria-hidden="true">*</span></label><select id="chBookSel"></select></div>
+      <div class="field"><label for="chTier">Tier</label><select id="chTier"></select><span class="hint" id="chTierHint">Free chapters can be read by everyone.</span></div>
+      <div class="twocol"><div class="field"><label for="chVol">Volume</label><input id="chVol" maxlength="20"></div><div class="field"><label for="chVolTitle">Volume title</label><input id="chVolTitle" maxlength="120"></div></div>
+      <div class="field"><label for="chNum">Chapter <span class="req" aria-hidden="true">*</span></label><input id="chNum" type="number" min="0" step="any" inputmode="decimal" required></div>
+    </aside>
   </form>
-</dialog>
+</div>
+</div>
 
 <dialog id="loginDlg" class="narrow" aria-labelledby="loginTitle">
   <form class="dlg" id="loginForm" novalidate>
-    <div class="dlg-head"><h2 id="loginTitle">Owner login</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="dlg-head"><h2 id="loginTitle">Sign in</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="seg full2" role="tablist" aria-label="Account"><button type="button" role="tab" id="authIn" aria-selected="true" aria-pressed="true">Sign in</button><button type="button" role="tab" id="authUp" aria-selected="false" aria-pressed="false">Create account</button></div>
+    <p class="note" id="authIntro" style="margin:0">Use the same email as your Patreon account, so your membership unlocks chapters here.</p>
     <div class="form" style="grid-template-columns:1fr">
-      <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="username" required></div>
-      <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="lEmail">Email</label><input id="lEmail" type="email" autocomplete="email" required></div>
+      <div class="field"><label for="lPass">Password</label><input id="lPass" type="password" autocomplete="current-password" required minlength="6"></div>
     </div>
-    <div class="actions"><button class="btn primary" type="submit" id="lBtn">Log in</button><span class="err" id="lErr"></span></div>
+    <div class="actions"><button class="btn primary" type="submit" id="lBtn">Sign in</button><button type="button" class="linkbtn" id="authForgot">Forgot password?</button></div>
+    <p class="err" id="lErr" role="alert" style="margin:0"></p><p class="okmsg" id="lOk" role="status" style="margin:0"></p>
   </form>
+</dialog>
+
+<dialog id="tierDlg" aria-labelledby="tierTitle">
+  <form class="dlg" id="tierForm" novalidate>
+    <div class="dlg-head"><h2 id="tierTitle">New tier</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="form">
+      <div class="field"><label for="tName">Name <span class="req" aria-hidden="true">*</span></label><input id="tName" maxlength="80" placeholder="e.g. Royalty"></div>
+      <div class="field"><label for="tBook">Novel</label><select id="tBook"></select></div>
+      <div class="field"><label for="tPrice">Price per month <span class="req" aria-hidden="true">*</span></label><input id="tPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="5"><span class="hint">Higher-priced tiers also unlock chapters set to cheaper tiers of the same novel.</span></div>
+      <div class="field"><label for="tUrl">Patreon link</label><input id="tUrl" inputmode="url" placeholder="https://www.patreon.com/…"><span class="hint">Where "Join" sends readers. Uses your main Patreon link if empty.</span></div>
+      <div class="field full"><label for="tDesc">Description</label><textarea id="tDesc" maxlength="1500" placeholder="Access to 3 advance chapters…" style="min-height:90px"></textarea></div>
+    </div>
+    <div class="actions"><button class="btn primary" type="submit" id="tSave">Save tier</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="tErr"></span></div>
+  </form>
+</dialog>
+
+<dialog id="msDlg" aria-labelledby="msTitle">
+  <form class="dlg" id="msForm" novalidate>
+    <div class="dlg-head"><h2 id="msTitle">New membership</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="form">
+      <div class="field full"><label for="msEmail">Reader's email <span class="req" aria-hidden="true">*</span></label><input id="msEmail" type="email" placeholder="the email they use on Patreon"></div>
+      <div class="field"><label for="msTier">Tier <span class="req" aria-hidden="true">*</span></label><select id="msTier"></select></div>
+      <div class="field"><label for="msStatus">Status</label><select id="msStatus"><option value="active">Active</option><option value="cancelled">Cancelled</option></select></div>
+      <div class="field"><label for="msExp">Expires on</label><input id="msExp" type="date"><span class="hint">Leave empty for no end date.</span></div>
+      <div class="field"><label for="msNote">Note</label><input id="msNote" maxlength="300"></div>
+    </div>
+    <div class="actions"><button class="btn primary" type="submit" id="msSave">Save membership</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="msErr"></span></div>
+  </form>
+</dialog>
+
+<dialog id="impDlg" class="wide" aria-labelledby="impTitle">
+  <div class="dlg">
+    <div class="dlg-head"><h2 id="impTitle">Import from Patreon</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <ol class="steps">
+      <li>On Patreon, open <b>Audience</b> (Relationship manager) and click <b>Export CSV</b>.</li>
+      <li>Choose that file below.</li>
+      <li>Match each Patreon tier to a tier on your site, then import. Readers already in the list get their expiry date updated.</li>
+    </ol>
+    <div><label class="btn" for="impFile">Choose CSV file</label><input type="file" id="impFile" accept=".csv,text/csv" hidden></div>
+    <div id="impBody"></div>
+  </div>
 </dialog>
 
 <div id="edStash" hidden>
@@ -277,6 +350,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

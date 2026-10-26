@@ -42,8 +42,9 @@ const configured=isUrl(CFG.url)&&CFG.key&&!/PASTE_/.test(CFG.key);
 const sb=configured&&window.supabase?window.supabase.createClient(CFG.url,CFG.key):null;
 
 async function loadPublic(){
-  const [b,c,n,l]=await Promise.all([sb.from("books").select("*").order("created_at",{ascending:false}),sb.from("site_config").select("*").eq("id",1).maybeSingle(),sb.from("chapter_counts").select("*"),
-    sb.from("latest_chapters").select("*").order("number",{ascending:false}).range(0,2999)]);
+  const [b,c,n,l,t]=await Promise.all([sb.from("books").select("*").order("created_at",{ascending:false}),sb.from("site_config").select("*").eq("id",1).maybeSingle(),sb.from("chapter_counts").select("*"),
+    sb.from("latest_chapters").select("*").order("number",{ascending:false}).range(0,2999),sb.from("tiers").select("*").order("price",{ascending:true})]);
+  S.memReady=!t.error;S.tiers=t.error?[]:(t.data||[]);
   if(b.error)throw b.error;
   S.books=b.data||[];S.config=c.data||{};if(S.books.length){S.hasExtra="original_title" in S.books[0];S.hasExtra2="staff" in S.books[0]}
   S.chaptersReady=!n.error;S.counts=n.error?{}:Object.fromEntries((n.data||[]).map(r=>[r.book_id,r.n]));
@@ -51,16 +52,34 @@ async function loadPublic(){
   S.loaded=true;applyConfig();
 }
 async function loadPrivate(){
-  if(!S.canEdit){S.members=[];S.links={};return}
+  S.mine=[];
+  if(!S.canEdit){S.members=[];S.links={};
+    if(S.email&&S.memReady){const r=await sb.from("memberships").select("id,tier_id,status,expires_at");S.mine=r.error?[]:(r.data||[])}
+    return}
   const [m,l]=await Promise.all([sb.from("members").select("*"),sb.from("private_links").select("*")]);
   S.members=m.data||[];S.links=Object.fromEntries((l.data||[]).map(r=>[r.book_id,r.url]));
 }
 async function refresh(){try{await loadPublic();await loadPrivate()}catch(e){console.error(e);showNotice("Couldn't load the library. Refresh the page to try again.")}rerender()}
-async function checkOwner(){const {data:{session}}=await sb.auth.getSession();if(!session)return false;const {data,error}=await sb.rpc("is_owner");return !error&&data===true}
+async function checkOwner(){const {data:{session}}=await sb.auth.getSession();S.session=session;S.email=(session?.user?.email||"").toLowerCase();if(!session)return false;const {data,error}=await sb.rpc("is_owner");return !error&&data===true}
+/* Tiers & access */
+function tierById(id){return S.tiers.find(t=>t.id===id)}
+function money(n){n=+n||0;return "$"+(Number.isInteger(n)?n:n.toFixed(2))}
+function activeMine(){const now=Date.now();return(S.mine||[]).filter(m=>m.status==="active"&&(!m.expires_at||Date.parse(m.expires_at)>now))}
+function canReadTier(tid){if(!tid||S.canEdit)return true;const need=tierById(tid);if(!need)return false;
+  return activeMine().some(m=>{const t=tierById(m.tier_id);return t&&(!t.book_id||t.book_id===need.book_id)&&+t.price>=+need.price})}
+function tiersFor(bookId){return S.tiers.filter(t=>!t.book_id||t.book_id===bookId).sort((a,b)=>+a.price-+b.price||(a.name||"").localeCompare(b.name||""))}
+function chCols(){return "id,book_id,number,title,words,published,created_at,updated_at"+(S.memReady?",tier_id,volume,volume_title":"")}
+function lockIcon(){const s=document.createElementNS("http://www.w3.org/2000/svg","svg");s.setAttribute("viewBox","0 0 24 24");s.setAttribute("width","13");s.setAttribute("height","13");s.setAttribute("aria-hidden","true");s.setAttribute("class","lk");
+  s.innerHTML='<rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="2.2"/>';return s}
+async function getChapter(id){
+  if(S.memReady!==false){const r=await sb.rpc("read_chapter",{p_id:id});
+    if(!r.error)return{data:Array.isArray(r.data)?r.data[0]||null:r.data};
+    if(!/read_chapter|function|schema cache/i.test(r.error.message||""))return{error:r.error}}
+  return await sb.from("chapters").select("*").eq("id",id).maybeSingle()}
 function loadToc(bookId,force){
   if(!force&&S.tocP[bookId])return S.tocP[bookId];
   const p=(async()=>{const out=[];
-    for(let from=0;;from+=1000){const r=await sb.from("chapters").select("id,book_id,number,title,words,published,created_at,updated_at").eq("book_id",bookId).order("number",{ascending:true}).range(from,from+999);
+    for(let from=0;;from+=1000){const r=await sb.from("chapters").select(chCols()).eq("book_id",bookId).order("number",{ascending:true}).range(from,from+999);
       if(r.error)throw r.error;out.push(...r.data);if(r.data.length<1000)break}
     return out})();
   S.tocP[bookId]=p;p.catch(()=>{delete S.tocP[bookId]});return p}
@@ -198,7 +217,7 @@ function carousel(stripId,books,ranked){const el=$(stripId);el.replaceChildren(.
 function updCard(b){const ch=S.latest[b.id]||[];
   return h("article",{class:"ucard"},h("a",{class:"ucov",href:"#book/"+b.id,tabindex:"-1","aria-hidden":"true"},cover(b,true)),
     h("div",{class:"ubody"},h("a",{class:"ut",href:"#book/"+b.id,text:b.title}),
-      ch.length?h("ul",{class:"uch"},...ch.map(c=>h("li",{},h("a",{href:"#read/"+c.id,text:"Ch. "+num(c.number)+(c.title?" · "+c.title:"")}),h("span",{class:"ago",text:ago(c.created_at)}))))
+      ch.length?h("ul",{class:"uch"},...ch.map(c=>{const lk=c.tier_id&&!canReadTier(c.tier_id);return h("li",{class:lk?"locked":null},h("a",{href:"#read/"+c.id,title:lk?"Locked for supporters":null},lk?lockIcon():null,"Ch. "+num(c.number)+(c.title?" · "+c.title:"")),h("span",{class:"ago",text:ago(c.created_at)}))}))
         :h("p",{class:"note",style:"margin:8px 0 0",text:b.status==="completed"?"Completed":"Chapters coming soon"})))}
 function rankRow(b,i,sub){return h("li",{},h("a",{href:"#book/"+b.id},i?h("span",{class:"rn",text:i}):null,thumb(b),
   h("span",{class:"rb"},h("span",{class:"re",text:(b.genres||[])[0]||"Novel"}),h("span",{class:"rt",text:b.title}),h("span",{class:"rs",text:sub}))))}
@@ -311,17 +330,35 @@ async function renderBook(id,seq){
   let desc=LS.get("tocDesc",false);
   const list=h("div",{class:"toc"});
   const draw=()=>{const items=desc?[...toc].reverse():toc;
-    list.replaceChildren(...items.map(c=>h("a",{class:"tocrow"+(last?.id===c.id?" last":""),href:"#read/"+c.id},
-      h("span",{class:"tn",text:num(c.number)}),h("span",{class:"tt",text:c.title||"Chapter "+num(c.number)}),h("span",{class:"td",text:fmtDate(c.created_at)}))));
+    list.replaceChildren(...items.map(c=>{const lk=c.tier_id&&!canReadTier(c.tier_id);const t=c.tier_id&&tierById(c.tier_id);
+      return h("a",{class:"tocrow"+(last?.id===c.id?" last":"")+(lk?" locked":""),href:"#read/"+c.id,title:t?(lk?"Locked: ":"Tier: ")+t.name:null},
+      h("span",{class:"tn",text:num(c.number)}),h("span",{class:"tt"},lk?lockIcon():null,c.title||"Chapter "+num(c.number)),h("span",{class:"td",text:t?(lk?t.name:"✓ "+t.name):fmtDate(c.created_at)}))}));
     sortBtn.textContent=desc?"Newest first":"Oldest first"};
   const sortBtn=h("button",{type:"button",class:"btn sm",onclick:()=>{desc=!desc;LS.set("tocDesc",desc);draw()}});
   const jump=toc.length>20?h("form",{class:"jump",onsubmit:e=>{e.preventDefault();const v=+jump.querySelector("input").value;const c=toc.find(x=>+x.number===v)||toc.find(x=>+x.number>=v);if(c)go("read/"+c.id);else toast("No chapter "+v+" yet")}},
     h("input",{type:"number",min:"0",step:"any",placeholder:"Go to ch.","aria-label":"Go to chapter number",id:"tocJump"}),h("button",{type:"submit",class:"btn sm",text:"Go"})):null;
+  const ts=tiersFor(id);
+  if(ts.length){const mineT=new Set(activeMine().map(m=>m.tier_id));
+    tocBox.before(h("section",{class:"tiersec"},h("div",{class:"tochead"},h("h2",{},"Support tiers")),
+      h("div",{class:"tiergrid"},...ts.map(t=>h("article",{class:"tiercard"+(mineT.has(t.id)?" mine":"")},
+        h("div",{class:"tname"},h("b",{text:t.name}),mineT.has(t.id)?h("span",{class:"pill p-published",text:"Your tier"}):null),
+        h("div",{class:"tprice"},h("span",{text:money(t.price)}),h("span",{class:"muted",text:" / month"})),
+        t.book_id?null:h("p",{class:"note",style:"margin:0",text:"Covers every novel"}),
+        t.description?h("p",{class:"tdesc",text:t.description}):null,
+        isUrl(t.patreon_url||S.config.join_url)?h("a",{class:"btn sm",href:t.patreon_url||S.config.join_url,target:"_blank",rel:"noopener",text:"Join on Patreon ↗"}):null)))))}
   tocBox.replaceChildren(h("div",{class:"tochead"},h("h2",{},"Chapters ",h("span",{class:"mono",text:toc.length})),h("div",{class:"tools"},jump,sortBtn)),list);
   draw();
 }
 
 /* ---------- Reader ---------- */
+function lockBox(c,b){const t=tierById(c.tier_id);const join=t?.patreon_url||S.config.join_url;
+  return h("div",{class:"lockbox"},h("div",{class:"lockic"},lockIcon()),
+    h("h3",{text:"This chapter is for supporters"}),
+    h("p",{text:t?`It unlocks with the ${t.name} tier (${money(t.price)}/month) or any higher tier for ${b.title}.`:"It unlocks with a membership."}),
+    S.email?h("p",{class:"note",text:`You're signed in as ${S.email}. If you've just joined on Patreon, your access may take a little while to be added. Make sure Patreon uses this same email.`})
+      :h("p",{class:"note",text:"Already a member? Sign in with the same email you use on Patreon."}),
+    h("div",{class:"actions",style:"justify-content:center"},isUrl(join)?h("a",{class:"btn primary",href:join,target:"_blank",rel:"noopener",text:"Join on Patreon ↗"}):null,
+      S.email?null:h("button",{type:"button",class:"btn",text:"Sign in",onclick:()=>openAuth("in")})))}
 function inline(s){const out=[];const re=/\*\*([^*\n]+)\*\*|\*([^*\n]+)\*/g;let last=0,m;
   while((m=re.exec(s))){if(m.index>last)out.push(s.slice(last,m.index));out.push(m[1]!=null?h("strong",{text:m[1]}):h("em",{text:m[2]}));last=re.lastIndex}
   if(last<s.length)out.push(s.slice(last));return out}
@@ -347,7 +384,7 @@ function drawSettings(){const box=$("rset");if(!box)return;const p=readerPrefs()
 async function renderReader(id,seq){
   const el=$("reader");
   el.replaceChildren(h("p",{class:"count pad",text:"Loading chapter"}));
-  const r=await sb.from("chapters").select("*").eq("id",id).maybeSingle();
+  const r=await getChapter(id);
   if(seq!==S.seq)return;
   if(r.error||!r.data){el.replaceChildren(h("div",{class:"pagehead"},backLink("Home","")),emptyBox("Chapter not available","It may have been moved, or it isn't published yet."));return}
   const c=r.data;const b=S.books.find(x=>x.id===c.book_id)||{id:c.book_id,title:"Back to book"};
@@ -355,7 +392,7 @@ async function renderReader(id,seq){
   if(seq!==S.seq)return;
   const nav=toc.filter(x=>x.published||x.id===c.id);if(!nav.some(x=>x.id===c.id))nav.push(c);nav.sort((a,b)=>a.number-b.number);
   const i=nav.findIndex(x=>x.id===c.id);const prev=nav[i-1],next=nav[i+1];S.readerNav={prev,next};
-  if(c.published){LS.set("last:"+c.book_id,{id:c.id,number:c.number});
+  if(c.published&&!c.locked){LS.set("last:"+c.book_id,{id:c.id,number:c.number});
     const vk="v:"+c.id+":"+today();if(!S.canEdit&&!LS.get(vk,false)){LS.set(vk,true);sb.rpc("record_view",{p_book:c.book_id}).then(()=>{},()=>{})}}
   document.title=`Ch. ${num(c.number)}${c.title?": "+c.title:""} · ${b.title}`;
   const navBar=()=>h("nav",{class:"rnav","aria-label":"Chapter navigation"},
@@ -370,9 +407,10 @@ async function renderReader(id,seq){
         ...nav.map(x=>h("option",{value:x.id,selected:x.id===c.id?true:null,text:"Ch. "+num(x.number)+(x.title?" · "+x.title:"")+(x.published?"":" (draft)")}))),setBtn)),
     setBox,
     h("article",{class:"chapter"},
-      h("h2",{class:"rtitle"},h("span",{class:"rnum",text:"Chapter "+num(c.number)}),c.title?h("span",{text:c.title}):null),
+      h("h2",{class:"rtitle"},h("span",{class:"rnum",text:(c.volume?"Volume "+c.volume+(c.volume_title?": "+c.volume_title:"")+" · ":"")+"Chapter "+num(c.number)}),c.title?h("span",{text:c.title}):null),
       c.published?null:h("p",{class:"banner",text:"Draft: only you can see this chapter."}),
-      h("div",{class:"chapter-body"},...renderBody(c.content))),
+      c.locked?lockBox(c,b):h("div",{class:"chapter-body"},...renderBody(c.content)),
+      !c.locked&&c.note?h("aside",{class:"tlnote"},h("p",{class:"eyebrow",text:"Translator's note"}),h("div",{},...renderBody(c.note))):null),
     navBar());
   drawSettings();
   if(S.canEdit)el.querySelector(".rtools").append(h("button",{type:"button",class:"btn sm",text:"Edit",onclick:()=>openChapterForm(c.book_id,c.id)}));
@@ -381,52 +419,99 @@ document.addEventListener("keydown",e=>{if(S.route.name!=="read"||e.altKey||e.ct
   if(e.key==="ArrowLeft"&&S.readerNav.prev)go("read/"+S.readerNav.prev.id);if(e.key==="ArrowRight"&&S.readerNav.next)go("read/"+S.readerNav.next.id)});
 for(const ev of ["copy","cut","contextmenu","dragstart"])document.addEventListener(ev,e=>{if(!S.canEdit&&e.target?.closest?.(".chapter-body"))e.preventDefault()});
 
-/* ---------- Chapter editor ---------- */
+/* ---------- Chapter editor (full page) ---------- */
 function draftKey(){const e=S.editChapter;return e?"draft:"+e.bookId+":"+(e.id||"new"):null}
-function updWords(){$("chWords").textContent=words($("chBody").value).toLocaleString()+" words"}
+function bodyText(){return htmlToText($("chBody").innerHTML)}
+function brify(root){const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const ts=[];while(w.nextNode())if(w.currentNode.nodeValue.includes("\n"))ts.push(w.currentNode);
+  for(const t of ts){const parts=t.nodeValue.split("\n");const frag=document.createDocumentFragment();parts.forEach((p,i)=>{if(i)frag.append(document.createElement("br"));if(p)frag.append(p)});t.replaceWith(frag)}return root}
+function setBody(text){const nodes=renderBody(text).map(brify);$("chBody").replaceChildren(...(nodes.length?nodes:[h("p",{},h("br"))]))}
+let wordT;function updWords(){clearTimeout(wordT);wordT=setTimeout(()=>{$("chWords").textContent=words($("chBody").innerText).toLocaleString()+" words"},200)}
 let draftT;
-function saveDraftSoon(){clearTimeout(draftT);draftT=setTimeout(()=>{const k=draftKey();if(k&&S.editChapter.dirty)LS.set(k,{num:$("chNum").value,title:$("chTitle").value,body:$("chBody").value})},500)}
-for(const id of ["chNum","chTitle","chBody"])$(id).addEventListener("input",()=>{if(S.editChapter)S.editChapter.dirty=true;if(id==="chBody")updWords();saveDraftSoon()});
+function saveDraftSoon(){clearTimeout(draftT);draftT=setTimeout(()=>{const k=draftKey();if(k&&S.chDirty)LS.set(k,{num:$("chNum").value,title:$("chTitle").value,body:bodyText(),note:$("chNote").value})},800)}
+function chMarkDirty(){if(!S.editChapter)return;S.chDirty=true;$("chDirty").hidden=false;saveDraftSoon()}
+function chClearDirty(){S.chDirty=false;$("chDirty").hidden=true}
+$("chapterForm").addEventListener("input",e=>{if(e.target.id==="chBody")updWords();if(e.target.id==="chTitle")$("chDlgTitle").textContent=e.target.value.trim()||("Chapter "+($("chNum").value||""));chMarkDirty()});
+$("chapterForm").addEventListener("change",()=>chMarkDirty());
+try{document.execCommand("defaultParagraphSeparator",false,"p")}catch{}
+for(const b of document.querySelectorAll(".rtebar [data-cmd]"))b.addEventListener("mousedown",e=>e.preventDefault());
+for(const b of document.querySelectorAll(".rtebar [data-cmd]"))b.addEventListener("click",()=>{$("chBody").focus();const c=b.dataset.cmd;
+  if(c==="scene")document.execCommand("insertHTML",false,'<hr class="scene"><p><br></p>');else document.execCommand(c,false,null);updWords();chMarkDirty()});
+$("chBody").addEventListener("paste",e=>{const cd=e.clipboardData;if(!cd)return;const html=cd.getData("text/html"),plain=cd.getData("text/plain");
+  let t="";try{t=html?htmlToText(html):plain}catch{t=plain}if(!t)return;e.preventDefault();
+  const wrap=brify(h("div",{},...renderBody(t)));document.execCommand("insertHTML",false,wrap.innerHTML);updWords();chMarkDirty()});
+$("chBody").addEventListener("drop",e=>{if(e.dataTransfer?.files?.length)e.preventDefault()});
 function fillBookSel(bookId,lock){const sel=$("chBookSel");
   sel.replaceChildren(...[...S.books].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(b=>h("option",{value:b.id,text:b.title,selected:b.id===bookId?true:null})));sel.disabled=!!lock}
+function fillTierSel(bookId,tierId){const sel=$("chTier");
+  if(!S.memReady){sel.replaceChildren(h("option",{value:"",text:"Free (tiers not set up yet)"}));sel.disabled=true;$("chTierHint").textContent="Run update-memberships.sql in Supabase to lock chapters to tiers.";return}
+  sel.disabled=false;const ts=tiersFor(bookId);
+  sel.replaceChildren(h("option",{value:"",text:"Free — everyone can read"}),...ts.map(t=>h("option",{value:t.id,selected:t.id===tierId?true:null,text:t.name+" ("+money(t.price)+")"+(t.book_id?"":" · all novels")})));
+  const hint=()=>{const t=tierById(sel.value);$("chTierHint").textContent=t?`Locked. Readers need ${t.name} or a higher tier.`:ts.length?"Free chapters can be read by everyone.":"No tiers for this novel yet. Add them under Subscriptions → Tiers."};hint();sel.onchange=hint}
 $("chBookSel").addEventListener("change",async e=>{const e2=S.editChapter;if(!e2||e2.id)return;e2.bookId=e.target.value;let toc=[];try{toc=await loadToc(e2.bookId)}catch{}
-  $("chNum").value=toc.length?Math.floor(Math.max(...toc.map(x=>+x.number)))+1:1});
-async function openChapterForm(bookId,id){
-  if(!S.chaptersReady){toast("Run update-chapters.sql in Supabase first");return}
-  if(!S.books.length){toast("Add a novel first");return}
-  if(!bookId||!S.books.some(b=>b.id===bookId))bookId=S.books[0].id;
+  $("chNum").value=toc.length?Math.floor(Math.max(...toc.map(x=>+x.number)))+1:1;fillTierSel(e2.bookId,"");chCrumbs()});
+function chCrumbs(){const e=S.editChapter;const b=S.books.find(x=>x.id===e?.bookId);
+  $("chCrumbs").replaceChildren(h("a",{href:"#",text:siteName()}),h("span",{"aria-hidden":"true",text:"/"}),h("a",{href:"#admin/chapters",text:"Chapters"}),h("span",{"aria-hidden":"true",text:"/"}),b?h("a",{href:"#admin/novels/"+b.id,text:b.title}):null)}
+function chMeta(c){const m=$("chMeta");
+  if(!c){m.replaceChildren(h("span",{},"Status: ",h("b",{text:"Not saved yet"})));return}
+  m.replaceChildren(h("span",{},"Status: ",h("b",{text:c.published?"Published":"Draft"})," — ",h("button",{type:"button",class:"linkbtn inl",text:c.published?"Unpublish":"Publish",onclick:()=>saveChapter(!c.published,false)})),
+    h("span",{},"Last modified: ",h("b",{text:fmtDateTime(c.updated_at||c.created_at)})),h("span",{},"Created: ",h("b",{text:fmtDateTime(c.created_at)})))}
+function setTab(t){const notes=t==="notes";$("tabContent").setAttribute("aria-selected",String(!notes));$("tabNotes").setAttribute("aria-selected",String(notes));$("paneContent").hidden=notes;$("paneNotes").hidden=!notes}
+$("tabContent").addEventListener("click",()=>setTab("content"));$("tabNotes").addEventListener("click",()=>setTab("notes"));
+function openChapterForm(bookId,id){if(!S.chaptersReady){toast("Run update-chapters.sql in Supabase first");return}if(!S.books.length){toast("Add a novel first");return}
+  go("admin/chapter/"+(id?id:"new"+(bookId?"/"+bookId:"")))}
+const CH_PAGE=$("chPage");
+async function renderChapterEditor(id,bookId,seq){stashForms();
+  for(const a of document.querySelectorAll(".anav a"))a.dataset.col==="chapters"?a.setAttribute("aria-current","page"):a.removeAttribute("aria-current");
+  if(!S.loaded){$("amain").replaceChildren(h("p",{class:"count pad",text:"Loading"}));return}
+  if(!S.chaptersReady){$("amain").replaceChildren(crumbs("Chapters"),h("div",{class:"banner",text:"Chapters aren't switched on yet. Run update-chapters.sql in Supabase, then refresh."}));return}
+  if(!S.books.length){$("amain").replaceChildren(crumbs("Chapters"),emptyBox("Add a novel first","Chapters belong to a novel. Create one under Novels."));return}
   let c=null;
-  if(id){const r=await sb.from("chapters").select("*").eq("id",id).maybeSingle();if(r.error||!r.data){toast("Couldn't open that chapter");return}c=r.data}
-  let toc=[];try{toc=await loadToc(bookId)}catch{}
+  if(id!=="new"){$("amain").replaceChildren(h("p",{class:"count pad",text:"Loading chapter"}));const r=await getChapter(id);if(seq!==S.seq)return;
+    if(r.error||!r.data){$("amain").replaceChildren(crumbs("Chapters"),emptyBox("Chapter not found","It may have been deleted."));return}c=r.data;bookId=c.book_id}
+  if(!bookId||!S.books.some(b=>b.id===bookId))bookId=lstate("chapters").filters.book||S.books[0].id;
+  let toc=[];try{toc=await loadToc(bookId)}catch{}if(seq!==S.seq)return;
   const next=toc.length?Math.floor(Math.max(...toc.map(x=>+x.number)))+1:1;
-  S.editChapter={bookId,id:id||null,dirty:false};
-  $("chDlgTitle").textContent=c?"Edit chapter":"Add chapter";fillBookSel(bookId,!!c);
-  $("chNum").value=c?num(c.number):next;$("chTitle").value=c?.title||"";$("chBody").value=c?.content||"";$("chPub").checked=c?!!c.published:true;
-  $("chErr").textContent="";$("chSaveNext").hidden=!!c;
+  S.editChapter={bookId,id:c?.id||null,published:c?!!c.published:false,chapter:c};S.chOpen=true;
+  $("amain").replaceChildren(CH_PAGE);setTab("content");
+  fillBookSel(bookId,!!c);fillTierSel(bookId,c?.tier_id||"");chCrumbs();chMeta(c);
+  $("chNum").value=c?num(c.number):next;$("chTitle").value=c?.title||"";setBody(c?.content||"");$("chNote").value=c?.note||"";$("chVol").value=c?.volume||"";$("chVolTitle").value=c?.volume_title||"";
+  if(!c&&toc.length){const prev=[...toc].sort((a,b)=>b.number-a.number)[0];if(prev?.volume){$("chVol").value=prev.volume;$("chVolTitle").value=prev.volume_title||""}if(prev?.tier_id&&S.memReady)fillTierSel(bookId,prev.tier_id)}
+  $("chErr").textContent="";chClearDirty();
   const d=LS.get(draftKey(),null);
-  if(d&&(d.body||"")!==($("chBody").value||"")){$("chNum").value=d.num||$("chNum").value;$("chTitle").value=d.title||"";$("chBody").value=d.body||"";S.editChapter.dirty=true;$("chErr").textContent="Restored your unsaved text.";}
-  updWords();$("chapterDlg").showModal();(c||d?$("chBody"):$("chTitle")).focus()}
-async function saveChapter(addNext){
+  if(d&&(d.body||"")!==bodyText()){$("chNum").value=d.num||$("chNum").value;$("chTitle").value=d.title||"";setBody(d.body||"");$("chNote").value=d.note||"";S.chDirty=true;$("chDirty").hidden=false;$("chErr").textContent="Restored your unsaved text from this device."}
+  $("chDlgTitle").textContent=$("chTitle").value.trim()||(c?"Chapter "+num(c.number):"New chapter");
+  document.title=($("chTitle").value.trim()||"Chapter")+" · Dashboard";
+  updWords();(c?$("chBody"):$("chTitle")).focus()}
+async function saveChapter(published,addNext){
   const e=S.editChapter;if(!e)return;const err=$("chErr");err.textContent="";
-  const n=parseFloat($("chNum").value),body=$("chBody").value.replace(/\r\n?/g,"\n").trim();
+  const n=parseFloat($("chNum").value),body=bodyText();
   if(!Number.isFinite(n)||n<0){err.textContent="Add a chapter number, like 12 or 12.5.";$("chNum").focus();return}
-  if(!body){err.textContent="Paste the chapter text before saving.";$("chBody").focus();return}
-  const row={book_id:e.bookId,number:n,title:$("chTitle").value.trim(),content:body,words:words(body),published:$("chPub").checked,updated_at:new Date().toISOString()};
-  for(const b of [$("chSave"),$("chSaveNext")])b.disabled=true;
-  try{const r=e.id?await sb.from("chapters").update(row).eq("id",e.id):await sb.from("chapters").insert(row);
-    if(r.error)throw r.error;
-    LS.del(draftKey());toast(e.id?"Chapter updated":"Chapter "+num(n)+" saved");
-    await loadToc(e.bookId,true);
-    if(addNext){S.editChapter={bookId:e.bookId,id:null,dirty:false};$("chNum").value=Math.floor(n)+1;$("chTitle").value="";$("chBody").value="";updWords();$("chTitle").focus();
-      $("chDlgTitle").textContent="Add chapter";}
-    else{S.editChapter=null;$("chapterDlg").close()}
-    await refresh();
-    if(S.route.name==="read"&&!addNext)route()}
-  catch(x){console.error(x);err.textContent=x?.code==="23505"?"Chapter "+num(n)+" already exists in this book. Use a different number or edit that chapter.":"Couldn't save. Check you're still logged in, then try again."}
-  finally{for(const b of [$("chSave"),$("chSaveNext")])b.disabled=false}}
-$("chapterForm").addEventListener("submit",ev=>{ev.preventDefault();saveChapter(false)});
-$("chSaveNext").addEventListener("click",()=>saveChapter(true));
-$("chapterDlg").addEventListener("close",()=>{S.editChapter=null});
+  if(!body){err.textContent="Add the chapter text before saving.";setTab("content");$("chBody").focus();return}
+  const row={book_id:e.bookId,number:n,title:$("chTitle").value.trim(),content:body,words:words(body),published,updated_at:new Date().toISOString()};
+  if(S.memReady)Object.assign(row,{tier_id:$("chTier").value||null,volume:$("chVol").value.trim(),volume_title:$("chVolTitle").value.trim(),note:$("chNote").value.trim()});
+  const btns=[$("chSave"),$("chDraftBtn"),$("chPubMore")];btns.forEach(b=>b.disabled=true);closeChMenus();
+  try{const r=e.id?await sb.from("chapters").update(row).eq("id",e.id):await sb.from("chapters").insert(row).select("id").single();
+    if(r.error)throw r.error;const newId=e.id||r.data?.id;
+    LS.del(draftKey());chClearDirty();
+    toast(published?(e.published||!e.id?"Chapter "+num(n)+" published":"Chapter "+num(n)+" published"):"Draft saved");
+    await loadToc(e.bookId,true);await refresh();
+    if(addNext){go("admin/chapter/new/"+e.bookId);return}
+    if(!e.id&&newId){location.replace("#admin/chapter/"+newId);return}
+    e.published=published;const fresh=(await loadToc(e.bookId)).find(x=>x.id===e.id);chMeta(fresh||{...e.chapter,published,updated_at:row.updated_at});
+    if(S.route.name==="read")route()}
+  catch(x){console.error(x);err.textContent=x?.code==="23505"?"Chapter "+num(n)+" already exists in this novel. Use a different number or edit that chapter.":"Couldn't save. Check you're still signed in, then try again."}
+  finally{btns.forEach(b=>b.disabled=false)}}
+$("chapterForm").addEventListener("submit",ev=>{ev.preventDefault();saveChapter(true,false)});
+$("chDraftBtn").addEventListener("click",()=>saveChapter(false,false));
+$("chSaveNext").addEventListener("click",()=>saveChapter(true,true));
+$("chDraftNext").addEventListener("click",()=>saveChapter(false,true));
+function closeChMenus(){for(const [m,b] of [["chPubMenu","chPubMore"],["chMenu","chMore"]]){$(m).hidden=true;$(b).setAttribute("aria-expanded","false")}}
+$("chPubMore").addEventListener("click",()=>{const open=$("chPubMenu").hidden;closeChMenus();$("chPubMenu").hidden=!open;$("chPubMore").setAttribute("aria-expanded",String(open))});
+$("chMore").addEventListener("click",()=>{const open=$("chMenu").hidden;closeChMenus();if(!open)return;const e=S.editChapter;
+  $("chMenu").replaceChildren(...(e?.id?[h("a",{class:"mi",href:"#read/"+e.id,target:"_blank",rel:"noopener",text:"View on site ↗"}),h("a",{class:"mi",href:"#admin/novels/"+e.bookId,text:"Open the novel"}),
+    confirmBtn("Delete chapter",async()=>{const r=await sb.from("chapters").delete().eq("id",e.id);if(r.error){toast("Couldn't delete it. Try again.");return}LS.del(draftKey());chClearDirty();toast("Chapter deleted");await loadToc(e.bookId,true).catch(()=>{});await refresh();go("admin/chapters/"+e.bookId)})]
+    :[h("p",{class:"note",style:"margin:4px 6px",text:"Save the chapter to see more actions."})]));$("chMenu").hidden=false;$("chMore").setAttribute("aria-expanded","true")});
+document.addEventListener("click",e=>{const p=e.composedPath();if(!p.includes($("ddChPub"))&&!p.includes($("ddChMore")))closeChMenus()});
 async function deleteChapter(bookId,id){const r=await sb.from("chapters").delete().eq("id",id);toast(r.error?"Couldn't delete that chapter":"Chapter deleted");await loadToc(bookId,true).catch(()=>{});await refresh()}
 
 /* Keep bold/italics when pasting from Google Docs or Word */
@@ -448,9 +533,7 @@ function htmlToText(html){
     if(block&&!out.endsWith("\n"))out+="\n\n"};
   walk(doc.body,false,false);
   return out.replace(/[ \t]+\n/g,"\n").replace(/\n[ \t]+/g,"\n").replace(/\n{3,}/g,"\n\n").trim()}
-$("chBody").addEventListener("paste",e=>{const html=e.clipboardData?.getData("text/html");if(!html)return;let t="";try{t=htmlToText(html)}catch{}if(!t)return;
-  e.preventDefault();const ta=e.target;if(!document.execCommand("insertText",false,t))ta.setRangeText(t,ta.selectionStart,ta.selectionEnd,"end");
-  if(S.editChapter)S.editChapter.dirty=true;updWords();saveDraftSoon()});
+
 
 /* ---------- Dashboard (admin) ---------- */
 function confirmBtn(label,fn){const b=h("button",{type:"button",class:"btn sm danger",text:label});let armed=false,t;
@@ -485,12 +568,14 @@ function adminCfg(col){
     cols:[{key:"number",label:"Ch.",cell:c=>h("span",{class:"num",text:num(c.number)})},
       {key:"title",label:"Title",cell:c=>h("button",{type:"button",class:"alink",text:c.title||"Chapter "+num(c.number),onclick:()=>openChapterForm(c.book_id,c.id)})},
       {key:"book",label:"Novel",nosort:true,cell:c=>h("span",{class:"muted",text:bookTitle(c.book_id)})},
+      {key:"volume",label:"Volume",nosort:true,cell:c=>h("span",{class:"muted",text:c.volume?c.volume+(c.volume_title?" · "+c.volume_title:""):"—"})},
       {key:"status",label:"Status",cell:c=>c.published?pill("published","Published"):pill("draft","Draft")},
+      {key:"tier",label:"Tier",nosort:true,cell:c=>{const t=c.tier_id&&tierById(c.tier_id);return t?h("span",{class:"tierchip"},lockIcon(),t.name):h("span",{class:"muted",text:"Free"})}},
       {key:"words",label:"Words",cell:c=>h("span",{class:"num muted",text:(c.words||0).toLocaleString()})},
       {key:"updated",label:"Updated",cell:c=>h("span",{class:"num muted",text:ago(c.updated_at||c.created_at)})},
       {key:"view",label:"",nosort:true,cell:c=>h("a",{class:"alink muted",href:"#read/"+c.id,text:"View ↗"})}],
     async fetch(st){if(!S.chaptersReady)return{rows:[],total:0};
-      let q=sb.from("chapters").select("id,book_id,number,title,words,published,created_at,updated_at",{count:"exact"});
+      let q=sb.from("chapters").select(chCols(),{count:"exact"});
       if(st.filters.book)q=q.eq("book_id",st.filters.book);
       if(st.filters.status)q=q.eq("published",st.filters.status==="published");
       const s=st.q.trim();if(s){if(/^\d+(\.\d+)?$/.test(s))q=q.eq("number",+s);else q=q.ilike("title","%"+s.replace(/[%_\\]/g,"")+"%")}
@@ -511,6 +596,47 @@ function adminCfg(col){
       const keep=savedGenres().filter(g=>!set.has(g.toLowerCase()));if(keep.length!==savedGenres().length){const r=await saveGenreList(keep);if(r.error)return r}
       for(const b of S.books){const gs=(b.genres||[]).filter(g=>!set.has(g.toLowerCase()));if(gs.length!==(b.genres||[]).length){const r=await sb.from("books").update({genres:gs}).eq("id",b.id);if(r.error)return r}}return{}}}],
     empty:"No genres yet. Click Add genre to create your first one."};
+  if(col==="tiers")return{col,title:"Tiers",intro:"Tiers are the levels readers pay for on Patreon. A chapter locked to a tier can be read by members of that tier, or of any higher-priced tier for the same novel.",
+    create:()=>openTier(null),search:"Search by name",defSort:{key:"novel",dir:"asc"},
+    notice:S.memReady?null:"Tiers aren't switched on yet. Run update-memberships.sql in Supabase (SQL Editor), then refresh this page.",
+    filters:[{key:"book",label:"All novels",opts:[["__all","Tiers for all novels"],...byTitle.map(b=>[b.id,b.title])]}],
+    cols:[{key:"name",label:"Name",cell:t=>h("button",{type:"button",class:"alink",text:t.name,onclick:()=>openTier(t.id)})},
+      {key:"novel",label:"Novel",cell:t=>h("span",{text:t.book_id?bookTitle(t.book_id):"All novels"})},
+      {key:"description",label:"Description",nosort:true,cell:t=>h("span",{class:"muted clamp1",text:t.description||"—"})},
+      {key:"price",label:"Price",cell:t=>h("span",{class:"num",text:money(t.price)})}],
+    async fetch(st){const q=st.q.trim().toLowerCase();const f=st.filters.book;
+      const rows=S.tiers.filter(t=>(!f||(f==="__all"?!t.book_id:t.book_id===f))&&(!q||(t.name||"").toLowerCase().includes(q)));
+      return localPage(rows,st,{novel:t=>(t.book_id?bookTitle(t.book_id):"").toLowerCase()+"|"+String(+t.price).padStart(8,"0"),name:t=>(t.name||"").toLowerCase(),price:t=>+t.price})},
+    bulk:[{label:"Delete",danger:true,run:ids=>sb.from("tiers").delete().in("id",ids),done:n=>n+" deleted. Chapters that used them are now free; memberships for them were removed."}],
+    after(){S.tocP={}},
+    empty:"No tiers yet. Create one for each Patreon tier, for example Friends ($3) and Royalty ($10)."};
+  if(col==="memberships")return{col,title:"Memberships",server:true,intro:"Who has paid for which tier. Readers sign in on the site with the same email they use on Patreon.",
+    create:()=>openMembership(null),extra:[{label:"Import from Patreon",run:openImport}],search:"Search by email",defSort:{key:"expires",dir:"asc"},
+    notice:S.memReady?null:"Memberships aren't switched on yet. Run update-memberships.sql in Supabase (SQL Editor), then refresh this page.",
+    filters:[{key:"status",label:"Any status",opts:[["active","Active"],["expired","Expired"],["cancelled","Cancelled"]]},
+      {key:"book",label:"All novels",opts:byTitle.filter(b=>S.tiers.some(t=>t.book_id===b.id)).map(b=>[b.id,b.title])},
+      {key:"tier",label:"All tiers",opts:[...S.tiers].sort((a,b)=>(a.name||"").localeCompare(b.name||"")).map(t=>[t.id,t.name+(t.book_id?" · "+bookTitle(t.book_id):" · all novels")])}],
+    cols:[{key:"status",label:"Status",cell:m=>{const st=msStatus(m);return pill(st==="active"?"active":st==="expired"?"due":"cancelled",st[0].toUpperCase()+st.slice(1))}},
+      {key:"email",label:"Email",cell:m=>h("button",{type:"button",class:"alink",text:m.email,onclick:()=>openMembership(m)})},
+      {key:"tier",label:"Tier",nosort:true,cell:m=>{const t=tierById(m.tier_id);return h("div",{class:"tmeta"},h("span",{text:t?t.name:"Deleted tier"}),h("span",{class:"sub",text:t?(t.book_id?bookTitle(t.book_id):"All novels"):""}))}},
+      {key:"expires",label:"Expires",cell:m=>h("span",{class:"num muted",text:m.expires_at?fmtDateTime(m.expires_at):"No end date"})},
+      {key:"source",label:"Added by",nosort:true,cell:m=>h("span",{class:"muted",text:m.source==="patreon"?"Patreon import":"You"})}],
+    async fetch(st){if(!S.memReady)return{rows:[],total:0};const now=new Date().toISOString();
+      let q=sb.from("memberships").select("id,email,tier_id,status,expires_at,note,source,created_at",{count:"exact"});
+      const f=st.filters;
+      if(f.status==="active")q=q.eq("status","active").or("expires_at.is.null,expires_at.gt."+now);
+      else if(f.status==="expired")q=q.eq("status","active").lt("expires_at",now);
+      else if(f.status==="cancelled")q=q.eq("status","cancelled");
+      if(f.tier)q=q.eq("tier_id",f.tier);else if(f.book){const ids=S.tiers.filter(t=>t.book_id===f.book).map(t=>t.id);q=q.in("tier_id",ids.length?ids:["00000000-0000-0000-0000-000000000000"])}
+      const s=st.q.trim().toLowerCase();if(s)q=q.ilike("email","%"+s.replace(/[%_\\]/g,"")+"%");
+      const key={email:"email",expires:"expires_at",status:"status"}[st.sort.key]||"expires_at";
+      q=q.order(key,{ascending:st.sort.dir==="asc",nullsFirst:false});
+      const r=await q.range((st.page-1)*st.per,st.page*st.per-1);if(r.error)throw r.error;return{rows:r.data||[],total:r.count??(r.data||[]).length}},
+    bulk:[{label:"Extend 30 days",done:n=>n+" extended by 30 days",run:async ids=>{const r=await sb.from("memberships").select("id,expires_at").in("id",ids);if(r.error)return r;
+        for(const m of r.data||[]){const base=Math.max(Date.now(),Date.parse(m.expires_at)||0);const u=await sb.from("memberships").update({expires_at:new Date(base+30*86400000).toISOString(),status:"active",updated_at:new Date().toISOString()}).eq("id",m.id);if(u.error)return u}return{}}},
+      {label:"Cancel",done:n=>n+" cancelled",run:ids=>sb.from("memberships").update({status:"cancelled",updated_at:new Date().toISOString()}).in("id",ids)},
+      {label:"Delete",danger:true,done:n=>n+" deleted",run:ids=>sb.from("memberships").delete().in("id",ids)}],
+    empty:"No memberships yet. Add one by hand, or import your Patreon members."};
   if(col==="members")return{col,title:"Paid members",create:()=>openMemberForm(null),search:"Search by name or contact",defSort:{key:"status",dir:"asc"},
     filters:[{key:"status",label:"Any status",opts:Object.entries(MSTATUS)},{key:"tier",label:"Any tier",opts:tiers().map(t=>[t,t])}],
     cols:[{key:"name",label:"Name",cell:m=>h("div",{class:"tmeta"},h("button",{type:"button",class:"alink",text:m.name,onclick:()=>openMemberForm(m.id)}),m.contact?h("div",{class:"sub",text:m.contact}):null)},
@@ -526,19 +652,21 @@ function adminCfg(col){
 }
 function crumbs(title){return h("div",{class:"crumbs"},h("a",{href:"#",text:siteName()}),h("span",{"aria-hidden":"true",text:"/"}),h("span",{text:title}))}
 const ED_PAGE=$("edPage"),CFG_FORM=$("cfgForm");
-function stashForms(){if(ED_PAGE.parentNode!==$("edStash"))$("edStash").append(ED_PAGE);if(CFG_FORM.parentNode!==$("stash"))$("stash").append(CFG_FORM)}
+function stashForms(){if(CH_PAGE.parentNode!==$("chStash"))$("chStash").append(CH_PAGE);if(ED_PAGE.parentNode!==$("edStash"))$("edStash").append(ED_PAGE);if(CFG_FORM.parentNode!==$("stash"))$("stash").append(CFG_FORM)}
 function renderAdmin(col,id){stashForms();
   if(!COLS_OK.includes(col))col="novels";
   for(const a of document.querySelectorAll(".anav a"))a.dataset.col===col?a.setAttribute("aria-current","page"):a.removeAttribute("aria-current");
-  document.title=(col==="settings"?"Settings":adminCfg(col).title)+" · Dashboard";
+  if(col!=="chapter")document.title=(col==="settings"?"Settings":adminCfg(col).title)+" · Dashboard";
   if(col!=="novels"||!id)S.edOpen=false;
+  if(col!=="chapter")S.chOpen=false;
   if(col==="novels"&&id){renderNovelEditor(id);return}
+  if(col==="chapter"){renderChapterEditor(id||"new",S.route.book||null,S.seq);return}
   if(col==="settings"){S.list=null;fillSettings();$("amain").replaceChildren(crumbs("Settings"),h("div",{class:"ahead"},h("h1",{text:"Settings"})),CFG_FORM);return}
   const cfg=adminCfg(col);const st=lstate(col,{sort:cfg.defSort});
   if(col==="chapters"&&id){st.filters.book=id;st.q="";st.page=1}
   if(S.list?.cfg.col!==col||id)st.sel.clear();
   mountList(cfg,st)}
-const COLS_OK=["novels","chapters","genres","members","settings"];
+const COLS_OK=["novels","chapters","genres","members","tiers","memberships","settings","chapter"];
 function mountList(cfg,st,container){
   const E={bulk:h("div",{class:"abulk",hidden:true}),thead:h("thead"),tbody:h("tbody"),empty:h("div",{class:"aempty",hidden:true}),pager:h("div",{class:"apager"}),count:h("span",{class:"acount"})};
   S.list={cfg,st,el:E};
@@ -548,7 +676,8 @@ function mountList(cfg,st,container){
     h("option",{value:"",text:f.label}),...f.opts.map(([v,t])=>h("option",{value:v,text:t,selected:st.filters[f.key]===v?true:null}))));
   (container||$("amain")).replaceChildren(...[cfg.embedded?null:crumbs(cfg.title),
     cfg.embedded?h("div",{class:"edchhead"},h("h2",{text:cfg.title}),E.count,cfg.create?h("button",{type:"button",class:"btn sm",text:cfg.createLabel||"Create new",onclick:cfg.create}):null)
-      :h("div",{class:"ahead"},h("h1",{text:cfg.title}),cfg.create?h("button",{type:"button",class:"btn sm",text:cfg.createLabel||"Create new",onclick:cfg.create}):null,E.count),
+      :h("div",{class:"ahead"},h("h1",{text:cfg.title}),cfg.create?h("button",{type:"button",class:"btn sm",text:cfg.createLabel||"Create new",onclick:cfg.create}):null,...(cfg.extra||[]).map(x=>h("button",{type:"button",class:"btn sm",text:x.label,onclick:x.run})),E.count),
+    cfg.intro?h("p",{class:"aintro",text:cfg.intro}):null,
     cfg.notice?h("div",{class:"banner",text:cfg.notice}):null,
     h("div",{class:"atools"},sbox,filters.length?h("div",{class:"afilters"},...filters):null),
     E.bulk,h("div",{class:"tscroll atable"},h("table",{},E.thead,E.tbody)),E.empty,E.pager].filter(Boolean));
@@ -586,7 +715,7 @@ async function runBulk(b){const L=S.list;if(!L)return;const ids=[...L.st.sel];if
   if(r?.error){console.error(r.error);toast("Couldn't finish that. Check you're still logged in, then try again.");refreshList();return}
   L.st.sel.clear();toast(b.done?b.done(ids.length):"Done");L.cfg.after?.();await refresh()}
 let promptSave=null;
-function openPrompt({title,label,value,onSave}){$("pTitle").textContent=title;$("pLabel").textContent=label;$("pInput").value=value||"";$("pErr").textContent="";promptSave=onSave;$("promptDlg").showModal();$("pInput").select()}
+function openPrompt({title,label,value,onSave,type}){$("pTitle").textContent=title;$("pLabel").textContent=label;$("pInput").type=type||"text";$("pInput").maxLength=type==="password"?72:40;$("pInput").value=value||"";$("pErr").textContent="";promptSave=onSave;$("promptDlg").showModal();$("pInput").select()}
 $("promptForm").addEventListener("submit",async e=>{e.preventDefault();if(!promptSave)return;$("pSave").disabled=true;const msg=await promptSave($("pInput").value);$("pSave").disabled=false;
   if(msg){$("pErr").textContent=msg;return}$("promptDlg").close()});
 function renameGenre(key,label){openPrompt({title:"Rename genre",label:"Genre name",value:label,async onSave(v){const nv=tidyGenre(v);if(!nv)return"Add a name for the genre.";
@@ -600,6 +729,82 @@ function addGenre(){openPrompt({title:"Add genre",label:"Genre name",value:"",as
   if(r.error)return/genres|column|schema/i.test(r.error.message||"")?"Run update-genres.sql in Supabase first, then try again.":"Couldn't add it. Check you're still logged in, then try again.";
   toast("“"+nv+"” added");await refresh()}})}
 $("aLogout").addEventListener("click",()=>logout());
+
+/* ---------- Tiers & memberships (dashboard) ---------- */
+function msStatus(m){return m.status==="cancelled"?"cancelled":m.expires_at&&Date.parse(m.expires_at)<=Date.now()?"expired":"active"}
+let editTier=null;
+function openTier(id){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}const t=id?tierById(id):null;editTier=id||null;
+  $("tierTitle").textContent=t?"Edit tier":"New tier";$("tName").value=t?.name||"";$("tPrice").value=t?(+t.price):"";$("tUrl").value=t?.patreon_url||"";$("tDesc").value=t?.description||"";$("tErr").textContent="";
+  const f=lstate("tiers").filters.book;
+  $("tBook").replaceChildren(h("option",{value:"",text:"All novels"}),...[...S.books].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(b=>h("option",{value:b.id,text:b.title,selected:(t?t.book_id===b.id:f===b.id)?true:null})));
+  $("tierDlg").showModal();$("tName").focus()}
+$("tierForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("tErr");err.textContent="";
+  const name=$("tName").value.trim(),price=parseFloat($("tPrice").value),url=$("tUrl").value.trim();
+  if(!name){err.textContent="Give the tier a name.";$("tName").focus();return}
+  if(!Number.isFinite(price)||price<0){err.textContent="Add a price, like 3 or 9.99.";$("tPrice").focus();return}
+  if(url&&!isUrl(url)){err.textContent="The Patreon link needs to start with https://";$("tUrl").focus();return}
+  const row={name,price,book_id:$("tBook").value||null,patreon_url:url,description:$("tDesc").value.trim()};
+  $("tSave").disabled=true;
+  const r=editTier?await sb.from("tiers").update(row).eq("id",editTier):await sb.from("tiers").insert(row);
+  $("tSave").disabled=false;
+  if(r.error){err.textContent="Couldn't save the tier. Check you're still signed in, then try again.";return}
+  $("tierDlg").close();toast(editTier?"Tier updated":"Tier created");S.tocP={};await refresh()});
+let editMs=null;
+function tierOptions(sel,selected){const groups=new Map();for(const t of [...S.tiers].sort((a,b)=>+a.price-+b.price)){const k=t.book_id?bookTitle(t.book_id):"All novels";if(!groups.has(k))groups.set(k,[]);groups.get(k).push(t)}
+  sel.replaceChildren(...[...groups.entries()].sort((a,b)=>a[0].localeCompare(b[0])).map(([g,ts])=>h("optgroup",{label:g},...ts.map(t=>h("option",{value:t.id,text:t.name+" ("+money(t.price)+")",selected:t.id===selected?true:null})))))}
+function openMembership(m){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}
+  if(!S.tiers.length){toast("Create a tier first, under Tiers");return}
+  editMs=m?.id||null;$("msTitle").textContent=m?"Edit membership":"New membership";$("msEmail").value=m?.email||"";tierOptions($("msTier"),m?.tier_id||lstate("memberships").filters.tier);
+  $("msStatus").value=m?.status||"active";$("msExp").value=m?.expires_at?String(m.expires_at).slice(0,10):new Date(Date.now()+31*86400000).toISOString().slice(0,10);$("msNote").value=m?.note||"";$("msErr").textContent="";
+  $("msDlg").showModal();$("msEmail").focus()}
+$("msForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("msErr");err.textContent="";
+  const email=$("msEmail").value.trim().toLowerCase();if(!/^\S+@\S+\.\S+$/.test(email)){err.textContent="Type the reader's email address.";$("msEmail").focus();return}
+  const exp=$("msExp").value;const row={email,tier_id:$("msTier").value,status:$("msStatus").value,expires_at:exp?new Date(exp+"T23:59:59").toISOString():null,note:$("msNote").value.trim(),updated_at:new Date().toISOString()};
+  $("msSave").disabled=true;
+  const r=editMs?await sb.from("memberships").update(row).eq("id",editMs):await sb.from("memberships").insert({...row,source:"manual"});
+  $("msSave").disabled=false;
+  if(r.error){err.textContent=r.error.code==="23505"?"This reader already has that tier. Edit their existing membership instead.":"Couldn't save. Check you're still signed in, then try again.";return}
+  $("msDlg").close();toast(editMs?"Membership updated":"Membership added");refreshList()});
+/* Patreon CSV import */
+function parseCSV(text){const rows=[];let row=[],f="",q=false;text=text.replace(/^﻿/,"");
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c==='"'){if(text[i+1]==='"'){f+='"';i++}else q=false}else f+=c}
+    else if(c==='"')q=true;else if(c===","){row.push(f);f=""}else if(c==="\n"||c==="\r"){if(c==="\r"&&text[i+1]==="\n")i++;row.push(f);rows.push(row);row=[];f=""}else f+=c}
+  if(f!==""||row.length){row.push(f);rows.push(row)}return rows.filter(r=>r.some(x=>x.trim()))}
+function patreonDate(s){s=(s||"").trim();if(!s)return null;const d=new Date(s.replace(" ","T").replace(/\.\d+$/,""));return isNaN(d)?null:d}
+let imp=null;
+function openImport(){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}if(!S.tiers.length){toast("Create your tiers first, so patrons can be matched to them");return}
+  imp=null;$("impBody").replaceChildren();$("impDlg").showModal()}
+$("impFile").addEventListener("change",async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;const body=$("impBody");
+  let rows;try{rows=parseCSV(await f.text())}catch{body.replaceChildren(h("p",{class:"err",text:"Couldn't read that file. Make sure it's the CSV export from Patreon."}));return}
+  const head=(rows.shift()||[]).map(x=>x.trim().toLowerCase());const col=n=>head.findIndex(x=>x===n);
+  const iE=col("email"),iT=col("tier"),iS=col("patron status"),iN=col("next charge date"),iA=col("access expiration"),iL=col("last charge date"),iName=col("name");
+  if(iE<0||iT<0){body.replaceChildren(h("p",{class:"err",text:"This file is missing the Email or Tier column. Use Patreon's member export (Audience → Export CSV)."}));return}
+  const people=[];let skipped=0;
+  for(const r of rows){const email=(r[iE]||"").trim().toLowerCase();const tier=(r[iT]||"").trim();const st=iS>=0?(r[iS]||"").toLowerCase():"active patron";
+    if(!email||!tier||!st.includes("active")){skipped++;continue}
+    let exp=patreonDate(iN>=0?r[iN]:"")||patreonDate(iA>=0?r[iA]:"");if(!exp){const l=patreonDate(iL>=0?r[iL]:"");exp=new Date((l?l.getTime():Date.now())+32*86400000)}
+    exp=new Date(exp.getTime()+2*86400000);
+    people.push({email,tier,expires_at:exp.toISOString(),name:iName>=0?r[iName]:""})}
+  const names=[...new Set(people.map(p=>p.tier))].sort();
+  imp={people,map:{}};
+  for(const n of names){const m=S.tiers.filter(t=>(t.name||"").trim().toLowerCase()===n.toLowerCase());imp.map[n]=m.length===1?m[0].id:""}
+  const draw=()=>{const ready=people.filter(p=>imp.map[p.tier]).length;
+    body.replaceChildren(
+      h("p",{},h("b",{text:people.length.toLocaleString()+" active patrons found"}),skipped?h("span",{class:"muted",text:` (${skipped.toLocaleString()} rows skipped: former patrons, followers or no tier)`}):null),
+      h("div",{class:"tscroll"},h("table",{class:"maptable"},h("thead",{},h("tr",{},h("th",{text:"Patreon tier"}),h("th",{text:"Patrons"}),h("th",{text:"Tier on your site"}))),
+        h("tbody",{},...names.map(n=>{const sel=h("select",{"aria-label":"Site tier for "+n,onchange:e=>{imp.map[n]=e.target.value;draw()}},h("option",{value:"",text:"Skip these patrons"}));
+          const tmp=h("select");tierOptions(tmp,imp.map[n]);sel.append(...tmp.childNodes);if(imp.map[n])sel.value=imp.map[n];
+          return h("tr",{},h("td",{text:n}),h("td",{class:"num",text:people.filter(p=>p.tier===n).length}),h("td",{},sel))})))),
+      h("p",{class:"note",text:"Each membership expires 2 days after the patron's next charge date. Run the import again after each billing cycle to extend everyone who paid."}),
+      h("div",{class:"actions"},h("button",{type:"button",class:"btn primary",id:"impGo",disabled:ready?null:true,text:`Import ${ready.toLocaleString()} memberships`,onclick:runImport}),h("span",{class:"note",id:"impMsg"})))};
+  draw()});
+async function runImport(){const rows=imp.people.filter(p=>imp.map[p.tier]).map(p=>({email:p.email,tier_id:imp.map[p.tier],status:"active",expires_at:p.expires_at,source:"patreon",updated_at:new Date().toISOString()}));
+  const seen=new Set();const uniq=rows.filter(r=>{const k=r.email+"|"+r.tier_id;if(seen.has(k))return false;seen.add(k);return true});
+  $("impGo").disabled=true;let done=0;
+  for(let i=0;i<uniq.length;i+=500){const r=await sb.from("memberships").upsert(uniq.slice(i,i+500),{onConflict:"email,tier_id"});
+    if(r.error){$("impMsg").textContent="Stopped after "+done+": "+r.error.message;$("impGo").disabled=false;return}done+=Math.min(500,uniq.length-i);$("impMsg").textContent=`Imported ${done} of ${uniq.length}…`}
+  $("impDlg").close();toast(done.toLocaleString()+" memberships imported");refreshList()}
 
 /* ---------- Book form ---------- */
 function setCover(k){S.cover=k;for(const b of $("bSwatches").children)b.setAttribute("aria-pressed",String(b.dataset.k===k));if(S.edOpen)coverPreview()}
@@ -640,7 +845,7 @@ $("bTagIn").addEventListener("blur",()=>{if($("bTagIn").value.trim())addEdGenre(
 $("bTagBox").addEventListener("click",e=>{if(e.target===$("bTagBox"))$("bTagIn").focus()});
 $("bookForm").addEventListener("input",e=>{if(e.target.id!=="bTagIn")markDirty();if(e.target.id==="bTitle")$("bookDlgTitle").textContent=e.target.value.trim()||"Untitled"});
 $("bookForm").addEventListener("change",e=>{if(e.target.id!=="bTagIn")markDirty()});
-window.addEventListener("beforeunload",e=>{if(S.edDirty){e.preventDefault();e.returnValue=""}});
+window.addEventListener("beforeunload",e=>{if(S.edDirty||S.chDirty){e.preventDefault();e.returnValue=""}});
 function pickCover(f){if(!f)return;if(!/^image\//.test(f.type)){$("bErr").textContent="That file isn't an image. Pick a JPG, PNG or WebP.";return}
   $("bErr").textContent="";S.coverFile=f;S.coverRemove=false;coverPreview();markDirty()}
 $("bDrop").addEventListener("dragover",e=>{e.preventDefault();$("bDrop").classList.add("over")});
@@ -795,26 +1000,61 @@ $("cfgForm").addEventListener("submit",async e=>{e.preventDefault();const err=$(
   if(!S.homeReady&&$("cAnn").value.trim())err.textContent="Saved, except announcements. Run update-home.sql in Supabase to turn them on.";
   document.activeElement?.blur();toast("Settings saved");await refresh()});
 
-/* ---------- Login ---------- */
-function openLogin(){$("lErr").textContent="";if(!$("loginDlg").open)$("loginDlg").showModal();$("lEmail").focus()}
+/* ---------- Accounts (readers and owner) ---------- */
+let authMode="in";
+function setAuthMode(m){authMode=m;const up=m==="up";
+  $("authIn").setAttribute("aria-selected",String(!up));$("authIn").setAttribute("aria-pressed",String(!up));$("authUp").setAttribute("aria-selected",String(up));$("authUp").setAttribute("aria-pressed",String(up));
+  $("loginTitle").textContent=up?"Create account":"Sign in";$("lBtn").textContent=up?"Create account":"Sign in";$("authForgot").hidden=up;
+  $("lPass").setAttribute("autocomplete",up?"new-password":"current-password");$("lErr").textContent="";$("lOk").textContent=""}
+function openAuth(mode,intent){S.authIntent=intent||null;setAuthMode(mode||"in");if(!$("loginDlg").open)$("loginDlg").showModal();$("lEmail").focus()}
+function openLogin(){openAuth("in","admin")}
+$("authIn").addEventListener("click",()=>setAuthMode("in"));$("authUp").addEventListener("click",()=>setAuthMode("up"));
 $("ownerLogin").addEventListener("click",openLogin);
-$("loginForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("lErr");err.textContent="";$("lBtn").disabled=true;
-  const {error}=await sb.auth.signInWithPassword({email:$("lEmail").value.trim(),password:$("lPass").value});
-  $("lBtn").disabled=false;
-  if(error){const m=(error.message||"").toLowerCase();err.textContent=m.includes("not confirmed")?"This email isn't confirmed. In Supabase, delete the user and add it again with Auto Confirm ticked.":m.includes("invalid login")?"Wrong email or password (Supabase says: "+error.message+")":"Login failed: "+error.message;return}
-  $("lPass").value="";await afterAuth();
-  if(!S.canEdit){err.textContent="This account isn't set up as the site owner.";await sb.auth.signOut();return}
-  $("loginDlg").close();toast("Logged in");
-  if(parseHash().name==="admin")route();else go("admin/novels")});
-async function logout(){await sb.auth.signOut();S.canEdit=false;await afterAuth();if(S.route.name==="admin")go("");else route();toast("Logged out")}
+function siteUrl(){return location.origin+location.pathname}
+$("authForgot").addEventListener("click",async()=>{const email=$("lEmail").value.trim();$("lErr").textContent="";$("lOk").textContent="";
+  if(!/^\S+@\S+\.\S+$/.test(email)){$("lErr").textContent="Type your email above first, then click Forgot password.";$("lEmail").focus();return}
+  const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:siteUrl()});
+  if(error){$("lErr").textContent="Couldn't send the reset email: "+error.message;return}
+  $("lOk").textContent="If that email has an account, a link to reset your password is on its way."});
+$("loginForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("lErr"),ok=$("lOk");err.textContent="";ok.textContent="";
+  const email=$("lEmail").value.trim(),password=$("lPass").value;
+  if(!/^\S+@\S+\.\S+$/.test(email)){err.textContent="Type a valid email address.";$("lEmail").focus();return}
+  if(password.length<6){err.textContent="Passwords need at least 6 characters.";$("lPass").focus();return}
+  $("lBtn").disabled=true;
+  try{
+    if(authMode==="up"){const {data,error}=await sb.auth.signUp({email,password,options:{emailRedirectTo:siteUrl()}});
+      if(error){const m=(error.message||"").toLowerCase();err.textContent=m.includes("not allowed")||m.includes("disabled")?"New accounts are switched off right now. Please try again later.":m.includes("already")?"That email already has an account. Sign in instead.":"Couldn't create the account: "+error.message;return}
+      if(data.session){$("lPass").value="";await afterAuth();$("loginDlg").close();toast("Welcome! You're signed in.");if(S.route.name==="read")route();return}
+      ok.textContent="Almost done: check your inbox for a confirmation email, click the link, then sign in here.";setAuthMode("in");ok.textContent="Almost done: check your inbox for a confirmation email, click the link, then sign in here.";return}
+    const {error}=await sb.auth.signInWithPassword({email,password});
+    if(error){const m=(error.message||"").toLowerCase();err.textContent=m.includes("not confirmed")?"Please confirm your email first. Check your inbox for the link we sent.":m.includes("invalid login")?"Wrong email or password.":"Couldn't sign in: "+error.message;return}
+    $("lPass").value="";await afterAuth();$("loginDlg").close();toast(S.canEdit?"Signed in as owner":"Signed in");
+    if(S.canEdit&&(S.authIntent==="admin"||parseHash().name==="admin")){if(parseHash().name==="admin")route();else go("admin/novels")}else route()}
+  finally{$("lBtn").disabled=false}});
+async function logout(){await sb.auth.signOut();S.canEdit=false;S.mine=[];await afterAuth();if(S.route.name==="admin")go("");else route();toast("Signed out")}
+function drawAcct(){const btn=$("acctBtn");const signed=!!S.email;btn.classList.toggle("on",signed);btn.setAttribute("aria-label",signed?"Your account":"Sign in");btn.title=signed?S.email:"Sign in"}
+function acctMenu(){const m=$("acctMenu");const act=activeMine();
+  const rows=act.map(x=>{const t=tierById(x.tier_id);const bk=t?.book_id?S.books.find(b=>b.id===t.book_id):null;
+    return h("div",{class:"accmem"},h("b",{text:t?t.name:"Tier"}),h("span",{class:"note",text:(bk?bk.title:"All novels")+(x.expires_at?" · until "+fmtDate(String(x.expires_at).slice(0,10)):"")}))});
+  m.replaceChildren(h("div",{class:"accwho"},h("span",{class:"note",text:"Signed in as"}),h("b",{text:S.email})),
+    S.canEdit?h("a",{class:"mi",href:"#admin/novels",text:"Dashboard"}):h("div",{class:"accmems"},h("p",{class:"eyebrow",style:"margin:6px 6px 4px",text:"Your memberships"}),
+      ...(rows.length?rows:[h("p",{class:"note",style:"margin:0 6px 6px",text:"None yet. Join a tier on Patreon with this same email to unlock chapters."})]),
+      isUrl(S.config.join_url)?h("a",{class:"mi",href:S.config.join_url,target:"_blank",rel:"noopener",text:"Become a supporter ↗"}):null),
+    h("button",{type:"button",class:"mi",text:"Sign out",onclick:()=>{closeAcct();logout()}}))}
+function closeAcct(){$("acctMenu").hidden=true;$("acctBtn").setAttribute("aria-expanded","false")}
+$("acctBtn").addEventListener("click",()=>{if(!S.email){openAuth("in");return}const p=$("acctMenu");const open=p.hidden;if(open){acctMenu();p.hidden=false;$("acctBtn").setAttribute("aria-expanded","true")}else closeAcct()});
+document.addEventListener("click",e=>{if(!$("acctMenu").hidden&&!e.composedPath().includes($("ddAcct")))closeAcct()});
 async function afterAuth(){S.canEdit=await checkOwner();$("navDash").hidden=!S.canEdit;
-  $("who").replaceChildren(S.canEdit?h("button",{type:"button",text:"Log out",onclick:logout}):h("button",{type:"button",text:"Owner login",onclick:openLogin}));
-  await refresh()}
+  $("who").replaceChildren(S.email?h("span",{},h("span",{class:"muted",text:S.email+" · "}),h("button",{type:"button",text:"Sign out",onclick:logout})):h("button",{type:"button",text:"Owner login",onclick:openLogin}));
+  drawAcct();await refresh()}
+if(sb)sb.auth.onAuthStateChange((event,session)=>{
+  if(event==="PASSWORD_RECOVERY")setTimeout(()=>openPrompt({title:"Choose a new password",label:"New password",value:"",type:"password",async onSave(v){if((v||"").length<6)return"Use at least 6 characters.";const {error}=await sb.auth.updateUser({password:v});if(error)return"Couldn't update it: "+error.message;toast("Password updated. You're signed in.");await afterAuth()}}),300);
+  else if(event==="SIGNED_IN"&&S.authReady&&(session?.user?.email||"").toLowerCase()!==S.email)afterAuth().then(()=>route())});
 
 /* ---------- Routing ---------- */
-function parseHash(){const raw=decodeURIComponent(location.hash.replace(/^#\/?/,""));const [name,id,sub]=raw.split("/");
+function parseHash(){const raw=decodeURIComponent(location.hash.replace(/^#\/?/,""));if(/access_token=|error_description=|type=recovery/.test(raw))return{name:"home"};const [name,id,sub]=raw.split("/");
   if((name==="book"||name==="read")&&id)return{name,id};
-  if(name==="admin")return{name,col:COLS_OK.includes(id)?id:"novels",id:sub||null};
+  if(name==="admin"){if(id==="chapter"){const parts=raw.split("/");return{name,col:"chapter",id:parts[2]||"new",book:parts[3]||null}}return{name,col:COLS_OK.includes(id)?id:"novels",id:sub||null}}
   if(name==="manage"&&id)return{name:"admin",col:"chapters",id};
   if(name==="dashboard")return{name:"admin",col:"novels"};
   if(name==="browse")return{name};return{name:"home"}}
@@ -822,8 +1062,11 @@ function go(hash){if(location.hash.replace(/^#/,"")===hash)route();else location
 const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin"};
 function route(){
   const prev=S.route;let r=parseHash();
+  const same=(a,b)=>a.name===b.name&&a.col===b.col&&a.id===b.id;
   if(S.edDirty&&prev.name==="admin"&&prev.col==="novels"&&prev.id&&!(r.name==="admin"&&r.col==="novels"&&r.id===prev.id)){
     if(!confirm("You have unsaved changes to this novel. Leave without saving?")){history.replaceState(null,"","#admin/novels/"+prev.id);return}clearDirty()}
+  if(S.chDirty&&prev.col==="chapter"&&!same(prev,r)){
+    if(!confirm("You have unsaved changes to this chapter. Leave without saving? (A copy stays saved on this device.)")){history.replaceState(null,"","#admin/chapter/"+(prev.id||"new")+(prev.book&&prev.id==="new"?"/"+prev.book:""));return}chClearDirty()}
   if(prev.name==="admin"&&prev.col==="novels"&&prev.id&&!(r.name==="admin"&&r.col==="novels"&&r.id===prev.id))S.edOpen=false;
   if(r.name==="admin"&&!S.canEdit){if(S.authReady)openLogin();r={name:"home"}}
   const keep=n=>n==="home"||n==="browse";
@@ -843,12 +1086,12 @@ function route(){
     else if(r.name==="read"){if(sb)renderReader(r.id,seq)}}
 }
 function rerender(){const r=S.route,seq=S.seq;
-  if(r.name==="browse")renderLibrary();else if(r.name==="home")renderHome(seq);else if(r.name==="admin"){if(r.col==="novels"&&r.id&&S.edOpen&&(r.id==="new"||S.books.some(b=>b.id===r.id))){if(r.id!=="new"&&!S.edDirty)edMeta(S.books.find(b=>b.id===r.id));refreshList()}else renderAdmin(r.col,r.col==="novels"?r.id:null)}
+  if(r.name==="browse")renderLibrary();else if(r.name==="home")renderHome(seq);else if(r.name==="admin"){if(r.col==="chapter"&&S.chOpen){}else if(r.col==="novels"&&r.id&&S.edOpen&&(r.id==="new"||S.books.some(b=>b.id===r.id))){if(r.id!=="new"&&!S.edDirty)edMeta(S.books.find(b=>b.id===r.id));refreshList()}else renderAdmin(r.col,(r.col==="novels"||r.col==="chapter")?r.id:null)}
   else if(r.name==="book")renderBook(r.id,seq)}
 window.addEventListener("hashchange",route);
 
 /* ---------- Wiring ---------- */
-for(const d of document.querySelectorAll("dialog")){d.addEventListener("click",e=>{if((e.target===d&&d.id!=="chapterDlg")||e.target.closest("[data-close]"))d.close()})}
+for(const d of document.querySelectorAll("dialog")){d.addEventListener("click",e=>{if((e.target===d&&d.id!=="impDlg")||e.target.closest("[data-close]"))d.close()})}
 function setLogo(n){const w=n.trim().split(/\s+/);const caps=w.length>=3?w.pop():"";$("logoScript").textContent=w.join(" ").toLowerCase();$("logoCaps").textContent=caps;$("logoCaps").hidden=!caps;$("brandLink").setAttribute("aria-label",n+", home")}
 function applyConfig(){const n=siteName();$("siteName").textContent=n;setLogo(n);if(!/^(book|read|admin)$/.test(S.route.name))document.title=n;$("hq").placeholder="Search "+(S.books.length?S.books.length+" titles":"titles")+", authors or genres";$("tagline").textContent=S.config.tagline||DEFAULT_TAG;$("footName").textContent="© "+new Date().getFullYear()+" "+n}
 
@@ -856,5 +1099,9 @@ S.hotWin=LS.get("hotWin",7);
 route();
 (async()=>{
   if(!sb){S.loaded=true;$("count").textContent="0 books";showNotice("This site isn't connected to its database yet. Add the Supabase details in config.js.");renderLibrary();return}
-  await afterAuth();S.authReady=true;route();
+  const ah=location.hash;
+  await afterAuth();S.authReady=true;
+  if(/error_description=/.test(ah)){toast(/expired/i.test(ah)?"That link has expired. Sign in, or ask for a new reset email.":"That link didn't work. Try signing in.");history.replaceState(null,"",location.pathname)}
+  else if(/access_token=|type=/.test(ah))history.replaceState(null,"",location.pathname);
+  route();
 })();
