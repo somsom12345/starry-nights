@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=11">
+<link rel="stylesheet" href="styles.css?v=12">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -30,6 +30,7 @@
     <nav class="hnav" aria-label="Main">
       <a href="#" id="navHome" class="nh">Home</a>
       <a href="#browse" id="navBrowse">Browse</a>
+      <a href="#collections" id="navColls" class="nc">Collections</a>
       <a href="#admin/novels" id="navDash" hidden>Dashboard</a>
       <div class="dd" id="ddAcct"><button type="button" class="iconbtn" id="acctBtn" aria-haspopup="true" aria-expanded="false" aria-label="Sign in"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></button><div class="ddpanel menu acct" id="acctMenu" hidden></div></div>
       <button type="button" class="iconbtn themebtn" id="themeBtn" aria-label="Switch theme"></button>
@@ -52,6 +53,10 @@
         <div class="sechead"><h2>Latest updates</h2><a class="more" href="#browse">Browse all →</a></div>
         <div class="updates" id="updates"></div>
         <div class="morebar"><button type="button" class="btn" id="moreUpdates" hidden>Show more</button></div>
+      </section>
+      <section class="hsec" id="collSec" hidden>
+        <div class="sechead"><h2>Reader collections</h2><a class="more" href="#collections">View all →</a></div>
+        <div class="cgrid three" id="homeColls"></div>
       </section>
       <section class="hsec" id="doneSec" hidden>
         <div class="sechead"><h2>Completed series</h2>
@@ -100,6 +105,9 @@
   </section>
 
   <section id="bookPage" class="bookpage" hidden></section>
+  <section id="collsPage" class="community" hidden></section>
+  <section id="collPage" class="community" hidden></section>
+  <section id="userPage" class="community" hidden></section>
   <section id="reader" class="reader" hidden></section>
   <section id="admin" class="adminshell" hidden>
     <aside class="aside">
@@ -112,6 +120,8 @@
         <p class="agroup">Subscriptions</p>
         <a href="#admin/tiers" data-col="tiers">Tiers</a>
         <a href="#admin/memberships" data-col="memberships">Memberships</a>
+        <p class="agroup">Community</p>
+        <a href="#admin/comments" data-col="comments">Comments</a>
         <p class="agroup">Site</p>
         <a href="#admin/settings" data-col="settings">Settings</a>
       </nav>
@@ -338,6 +348,17 @@
   </div>
 </dialog>
 
+<dialog id="addCollDlg" class="narrow" aria-labelledby="acTitle">
+  <div class="dlg">
+    <div class="dlg-head"><h2 id="acTitle">Add to collection</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <p class="note" id="acBook" style="margin:-6px 0 0"></p>
+    <div id="acList" class="aclist"></div>
+    <form id="acNew" class="acnew" novalidate><input id="acNewTitle" maxlength="80" placeholder="New collection name, e.g. Comfort reads" aria-label="New collection name"><button type="submit" class="btn sm">Create</button></form>
+    <p class="err" id="acErr" role="alert" style="margin:0"></p>
+    <div class="actions"><button type="button" class="btn primary" data-close>Done</button></div>
+  </div>
+</dialog>
+
 <dialog id="promptDlg" class="narrow" aria-labelledby="pTitle">
   <form class="dlg" id="promptForm" novalidate>
     <div class="dlg-head"><h2 id="pTitle">Rename</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
@@ -350,6 +371,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

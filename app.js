@@ -45,6 +45,7 @@ async function loadPublic(){
   const [b,c,n,l,t]=await Promise.all([sb.from("books").select("*").order("created_at",{ascending:false}),sb.from("site_config").select("*").eq("id",1).maybeSingle(),sb.from("chapter_counts").select("*"),
     sb.from("latest_chapters").select("*").order("number",{ascending:false}).range(0,2999),sb.from("tiers").select("*").order("price",{ascending:true})]);
   S.memReady=!t.error;S.tiers=t.error?[]:(t.data||[]);
+  try{const hc=await sb.rpc("list_collections",{p_sort:"popular",p_limit:6});S.commReady=!hc.error;S.homeColls=hc.error?[]:(hc.data||[])}catch{S.commReady=false;S.homeColls=[]}
   if(b.error)throw b.error;
   S.books=b.data||[];S.config=c.data||{};if(S.books.length){S.hasExtra="original_title" in S.books[0];S.hasExtra2="staff" in S.books[0]}
   S.chaptersReady=!n.error;S.counts=n.error?{}:Object.fromEntries((n.data||[]).map(r=>[r.book_id,r.n]));
@@ -52,7 +53,8 @@ async function loadPublic(){
   S.loaded=true;applyConfig();
 }
 async function loadPrivate(){
-  S.mine=[];
+  S.mine=[];S.profile=null;
+  if(S.uid&&S.commReady){const p=await sb.from("profiles").select("user_id,display_name").eq("user_id",S.uid).maybeSingle();S.profile=p.data||null}
   if(!S.canEdit){S.members=[];S.links={};
     if(S.email&&S.memReady){const r=await sb.from("memberships").select("id,tier_id,status,expires_at");S.mine=r.error?[]:(r.data||[])}
     return}
@@ -60,7 +62,7 @@ async function loadPrivate(){
   S.members=m.data||[];S.links=Object.fromEntries((l.data||[]).map(r=>[r.book_id,r.url]));
 }
 async function refresh(){try{await loadPublic();await loadPrivate()}catch(e){console.error(e);showNotice("Couldn't load the library. Refresh the page to try again.")}rerender()}
-async function checkOwner(){const {data:{session}}=await sb.auth.getSession();S.session=session;S.email=(session?.user?.email||"").toLowerCase();if(!session)return false;const {data,error}=await sb.rpc("is_owner");return !error&&data===true}
+async function checkOwner(){const {data:{session}}=await sb.auth.getSession();S.session=session;S.uid=session?.user?.id||null;S.email=(session?.user?.email||"").toLowerCase();if(!session)return false;const {data,error}=await sb.rpc("is_owner");return !error&&data===true}
 /* Tiers & access */
 function tierById(id){return S.tiers.find(t=>t.id===id)}
 function money(n){n=+n||0;return "$"+(Number.isInteger(n)?n:n.toFixed(2))}
@@ -250,6 +252,7 @@ async function renderHome(seq){
   const ups=[...S.books].sort((a,b)=>updTime(b)-updTime(a)||time(b)-time(a));
   $("updates").replaceChildren(...ups.slice(0,S.updLimit).map(updCard));$("moreUpdates").hidden=ups.length<=S.updLimit;
   const done=S.books.filter(b=>b.status==="completed");$("doneSec").hidden=done.length<2;carousel("doneStrip",done,false);
+  const hc=(S.homeColls||[]).filter(c=>+c.items>0).slice(0,3);$("collSec").hidden=!hc.length;$("homeColls").replaceChildren(...hc.map(collCard));
   $("recentList").replaceChildren(...[...S.books].sort((a,b)=>time(b)-time(a)).slice(0,6).map(b=>rankRow(b,0,(chCount(b)?chCount(b)+" ch · ":"")+"added "+ago(b.created_at))));
   drawHot(seq)}
 $("moreUpdates").addEventListener("click",()=>{S.updLimit+=12;renderHome(S.seq)});
@@ -320,11 +323,13 @@ async function renderBook(id,seq){
     acts.append(h("span",{class:"note",text:"This book is for paid members."}));
   }else if(isUrl(b.read_url))acts.append(h("a",{class:"btn primary",href:b.read_url,target:"_blank",rel:"noopener",text:"Start reading"}));
   else acts.append(h("span",{class:"note",text:"Chapters coming soon."}));
+  if(S.commReady)acts.append(h("button",{type:"button",class:"btn",onclick:()=>openAddToCollection(b)},"+ Add to collection"));
   if(isUrl(b.paypal))acts.append(h("a",{class:"btn",href:b.paypal,target:"_blank",rel:"noopener",text:"Support on PayPal ↗"}));
   if(isUrl(b.discord_url))acts.append(h("a",{class:"btn",href:b.discord_url,target:"_blank",rel:"noopener",text:"Discord ↗"}));
   if(isUrl(b.discord_supporter_url))acts.append(h("a",{class:"linkbtn",href:b.discord_supporter_url,target:"_blank",rel:"noopener",text:"Supporter Discord ↗"}));
   if(isUrl(b.external_url))acts.append(h("a",{class:"linkbtn",href:b.external_url,target:"_blank",rel:"noopener",text:/novelupdates/i.test(b.external_url)?"Novel Updates ↗":"More info ↗"}));
   if(S.canEdit)acts.append(h("a",{class:"btn",href:"#admin/chapters/"+id,text:"Manage chapters"}),h("button",{type:"button",class:"btn",text:"Edit book",onclick:()=>openBookForm(id)}));
+  bookCollectionsSection(id,seq).then(sec=>{if(sec&&seq===S.seq)tocBox.after(sec)});
   if(!toc.length){tocBox.replaceChildren();return}
   const last=LS.get("last:"+id,null);
   let desc=LS.get("tocDesc",false);
@@ -401,6 +406,7 @@ async function renderReader(id,seq){
     next?h("a",{class:"btn primary",href:"#read/"+next.id,rel:"next"},"Next →"):h("span",{class:"note",text:"You're all caught up"}));
   const setBox=h("div",{class:"rset",id:"rset",hidden:true});
   const setBtn=h("button",{type:"button",class:"btn sm","aria-expanded":"false","aria-controls":"rset",text:"Aa",title:"Reading settings",onclick:()=>{setBox.hidden=!setBox.hidden;setBtn.setAttribute("aria-expanded",String(!setBox.hidden))}});
+  const cbox=h("section",{class:"comments",id:"comments","aria-label":"Comments"});
   el.replaceChildren(
     h("div",{class:"rtop"},h("a",{class:"back",href:"#book/"+b.id},"← ",h("span",{class:"rbk",text:b.title})),
       h("div",{class:"rtools"},h("select",{class:"rjump","aria-label":"Jump to chapter",onchange:e=>go("read/"+e.target.value)},
@@ -411,8 +417,10 @@ async function renderReader(id,seq){
       c.published?null:h("p",{class:"banner",text:"Draft: only you can see this chapter."}),
       c.locked?lockBox(c,b):h("div",{class:"chapter-body"},...renderBody(c.content)),
       !c.locked&&c.note?h("aside",{class:"tlnote"},h("p",{class:"eyebrow",text:"Translator's note"}),h("div",{},...renderBody(c.note))):null),
-    navBar());
+    navBar(),cbox);
   drawSettings();
+  if(S.commReady&&!c.locked)el.querySelector(".rtools").prepend(h("button",{type:"button",class:"btn sm",id:"jumpComments",text:"Comments",onclick:()=>cbox.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}));
+  renderComments(c,cbox);
   if(S.canEdit)el.querySelector(".rtools").append(h("button",{type:"button",class:"btn sm",text:"Edit",onclick:()=>openChapterForm(c.book_id,c.id)}));
 }
 document.addEventListener("keydown",e=>{if(S.route.name!=="read"||e.altKey||e.ctrlKey||e.metaKey||document.querySelector("dialog[open]")||/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName||""))return;
@@ -637,6 +645,31 @@ function adminCfg(col){
       {label:"Cancel",done:n=>n+" cancelled",run:ids=>sb.from("memberships").update({status:"cancelled",updated_at:new Date().toISOString()}).in("id",ids)},
       {label:"Delete",danger:true,done:n=>n+" deleted",run:ids=>sb.from("memberships").delete().in("id",ids)}],
     empty:"No memberships yet. Add one by hand, or import your Patreon members."};
+  if(col==="comments")return{col,title:"Comments",server:true,intro:"Every comment on the site, newest first. Hidden comments show as deleted to readers. Blocking stops a reader from commenting, liking or making collections, and hides their comments.",
+    search:"Search comment text",defSort:{key:"date",dir:"desc"},
+    notice:S.commReady?null:"Comments aren't switched on yet. Run update-community.sql in Supabase (SQL Editor), then refresh this page.",
+    filters:[{key:"status",label:"Any status",opts:[["visible","Visible"],["hidden","Hidden"]]},{key:"book",label:"All novels",opts:byTitle.map(b=>[b.id,b.title])}],
+    cols:[{key:"author",label:"Reader",nosort:true,cell:m=>{const n=S.nameCache?.[m.user_id]||"Reader";return h("a",{class:"tcell alink",href:"#reader/"+m.user_id,target:"_blank",rel:"noopener"},avatar(n,m.user_id,"sm"),h("span",{text:n}))}},
+      {key:"body",label:"Comment",nosort:true,cell:m=>h("div",{class:"tmeta"},h("span",{class:"clamp2"+(m.deleted?" muted":""),text:(m.deleted?"[Hidden] ":"")+(m.spoiler?"[Spoiler] ":"")+(m.parent_id?"↳ ":"")+m.body}))},
+      {key:"where",label:"Chapter",nosort:true,cell:m=>{const ch=S.chCache?.[m.chapter_id];return h("a",{class:"alink muted",href:"#read/"+m.chapter_id,target:"_blank",rel:"noopener"},bookTitle(m.book_id)+(ch?" · Ch. "+num(ch.number):""))}},
+      {key:"date",label:"Posted",cell:m=>h("span",{class:"num muted",title:fmtDateTime(m.created_at),text:ago(m.created_at)})}],
+    async fetch(st){if(!S.commReady)return{rows:[],total:0};
+      let q=sb.from("comments").select("id,chapter_id,book_id,user_id,parent_id,body,spoiler,deleted,created_at",{count:"exact"});
+      if(st.filters.status==="visible")q=q.eq("deleted",false);else if(st.filters.status==="hidden")q=q.eq("deleted",true);
+      if(st.filters.book)q=q.eq("book_id",st.filters.book);
+      const s=st.q.trim();if(s)q=q.ilike("body","%"+s.replace(/[%_\\]/g,"")+"%");
+      q=q.order("created_at",{ascending:st.sort.dir==="asc"});
+      const r=await q.range((st.page-1)*st.per,st.page*st.per-1);if(r.error)throw r.error;const rows=r.data||[];
+      S.cmRows=Object.fromEntries(rows.map(x=>[x.id,x]));S.nameCache||={};S.chCache||={};
+      const uids=[...new Set(rows.map(x=>x.user_id))].filter(u=>!S.nameCache[u]);if(uids.length){const p=await sb.from("profiles").select("user_id,display_name").in("user_id",uids);for(const x of p.data||[])S.nameCache[x.user_id]=x.display_name}
+      const cids=[...new Set(rows.map(x=>x.chapter_id))].filter(c=>!S.chCache[c]);if(cids.length){const c=await sb.from("chapters").select("id,number").in("id",cids);for(const x of c.data||[])S.chCache[x.id]=x}
+      return{rows,total:r.count??rows.length}},
+    bulk:[{label:"Hide",done:n=>n+" hidden",run:ids=>sb.from("comments").update({deleted:true}).in("id",ids)},
+      {label:"Restore",done:n=>n+" restored",run:ids=>sb.from("comments").update({deleted:false}).in("id",ids)},
+      {label:"Block reader",done:n=>"Blocked the authors of "+n+" comments",run:async ids=>{const us=[...new Set(ids.map(i=>S.cmRows?.[i]?.user_id).filter(Boolean))];for(const u of us){const r=await sb.rpc("set_blocked",{p_user:u,p_blocked:true});if(r.error)return r}return{}}},
+      {label:"Unblock reader",done:n=>"Unblocked the authors of "+n+" comments",run:async ids=>{const us=[...new Set(ids.map(i=>S.cmRows?.[i]?.user_id).filter(Boolean))];for(const u of us){const r=await sb.rpc("set_blocked",{p_user:u,p_blocked:false});if(r.error)return r}return{}}},
+      {label:"Delete",danger:true,done:n=>n+" deleted for good",run:ids=>sb.from("comments").delete().in("id",ids)}],
+    empty:"No comments yet."};
   if(col==="members")return{col,title:"Paid members",create:()=>openMemberForm(null),search:"Search by name or contact",defSort:{key:"status",dir:"asc"},
     filters:[{key:"status",label:"Any status",opts:Object.entries(MSTATUS)},{key:"tier",label:"Any tier",opts:tiers().map(t=>[t,t])}],
     cols:[{key:"name",label:"Name",cell:m=>h("div",{class:"tmeta"},h("button",{type:"button",class:"alink",text:m.name,onclick:()=>openMemberForm(m.id)}),m.contact?h("div",{class:"sub",text:m.contact}):null)},
@@ -666,7 +699,7 @@ function renderAdmin(col,id){stashForms();
   if(col==="chapters"&&id){st.filters.book=id;st.q="";st.page=1}
   if(S.list?.cfg.col!==col||id)st.sel.clear();
   mountList(cfg,st)}
-const COLS_OK=["novels","chapters","genres","members","tiers","memberships","settings","chapter"];
+const COLS_OK=["novels","chapters","genres","members","tiers","memberships","comments","settings","chapter"];
 function mountList(cfg,st,container){
   const E={bulk:h("div",{class:"abulk",hidden:true}),thead:h("thead"),tbody:h("tbody"),empty:h("div",{class:"aempty",hidden:true}),pager:h("div",{class:"apager"}),count:h("span",{class:"acount"})};
   S.list={cfg,st,el:E};
@@ -715,7 +748,7 @@ async function runBulk(b){const L=S.list;if(!L)return;const ids=[...L.st.sel];if
   if(r?.error){console.error(r.error);toast("Couldn't finish that. Check you're still logged in, then try again.");refreshList();return}
   L.st.sel.clear();toast(b.done?b.done(ids.length):"Done");L.cfg.after?.();await refresh()}
 let promptSave=null;
-function openPrompt({title,label,value,onSave,type}){$("pTitle").textContent=title;$("pLabel").textContent=label;$("pInput").type=type||"text";$("pInput").maxLength=type==="password"?72:40;$("pInput").value=value||"";$("pErr").textContent="";promptSave=onSave;$("promptDlg").showModal();$("pInput").select()}
+function openPrompt({title,label,value,onSave,type,maxLength}){$("pTitle").textContent=title;$("pLabel").textContent=label;$("pInput").type=type||"text";$("pInput").maxLength=maxLength||(type==="password"?72:40);$("pInput").value=value||"";$("pErr").textContent="";promptSave=onSave;$("promptDlg").showModal();$("pInput").select()}
 $("promptForm").addEventListener("submit",async e=>{e.preventDefault();if(!promptSave)return;$("pSave").disabled=true;const msg=await promptSave($("pInput").value);$("pSave").disabled=false;
   if(msg){$("pErr").textContent=msg;return}$("promptDlg").close()});
 function renameGenre(key,label){openPrompt({title:"Rename genre",label:"Genre name",value:label,async onSave(v){const nv=tidyGenre(v);if(!nv)return"Add a name for the genre.";
@@ -1037,6 +1070,9 @@ function acctMenu(){const m=$("acctMenu");const act=activeMine();
   const rows=act.map(x=>{const t=tierById(x.tier_id);const bk=t?.book_id?S.books.find(b=>b.id===t.book_id):null;
     return h("div",{class:"accmem"},h("b",{text:t?t.name:"Tier"}),h("span",{class:"note",text:(bk?bk.title:"All novels")+(x.expires_at?" · until "+fmtDate(String(x.expires_at).slice(0,10)):"")}))});
   m.replaceChildren(h("div",{class:"accwho"},h("span",{class:"note",text:"Signed in as"}),h("b",{text:S.email})),
+    S.commReady?h("div",{class:"accprof"},S.profile?h("span",{},h("span",{class:"note",text:"Display name: "}),h("b",{text:S.profile.display_name})):h("span",{class:"note",text:"No display name yet"}),
+      h("button",{type:"button",class:"linkbtn",text:S.profile?"Change":"Choose one",onclick:()=>{closeAcct();S.profile?renameMe():ensureProfile()}})):null,
+    S.commReady?h("a",{class:"mi",href:S.uid?"#reader/"+S.uid:"#collections",onclick:closeAcct,text:"My collections"}):null,
     S.canEdit?h("a",{class:"mi",href:"#admin/novels",text:"Dashboard"}):h("div",{class:"accmems"},h("p",{class:"eyebrow",style:"margin:6px 6px 4px",text:"Your memberships"}),
       ...(rows.length?rows:[h("p",{class:"note",style:"margin:0 6px 6px",text:"None yet. Join a tier on Patreon with this same email to unlock chapters."})]),
       isUrl(S.config.join_url)?h("a",{class:"mi",href:S.config.join_url,target:"_blank",rel:"noopener",text:"Become a supporter ↗"}):null),
@@ -1051,15 +1087,242 @@ if(sb)sb.auth.onAuthStateChange((event,session)=>{
   if(event==="PASSWORD_RECOVERY")setTimeout(()=>openPrompt({title:"Choose a new password",label:"New password",value:"",type:"password",async onSave(v){if((v||"").length<6)return"Use at least 6 characters.";const {error}=await sb.auth.updateUser({password:v});if(error)return"Couldn't update it: "+error.message;toast("Password updated. You're signed in.");await afterAuth()}}),300);
   else if(event==="SIGNED_IN"&&S.authReady&&(session?.user?.email||"").toLowerCase()!==S.email)afterAuth().then(()=>route())});
 
+function fillEl(el,...k){el.replaceChildren(...k.flat().filter(x=>x!=null&&x!==false))}
+/* ---------- Community: profiles ---------- */
+function hue(s){let x=0;for(const ch of String(s||""))x=(x*31+ch.charCodeAt(0))>>>0;return x%360}
+function avatar(name,uid,size){return h("span",{class:"avatar"+(size?" "+size:""),style:`--av:${hue(uid||name)}`,"aria-hidden":"true",text:(name||"?").trim().charAt(0).toUpperCase()})}
+function heartIcon(on){const s=document.createElementNS("http://www.w3.org/2000/svg","svg");s.setAttribute("viewBox","0 0 24 24");s.setAttribute("width","15");s.setAttribute("height","15");s.setAttribute("aria-hidden","true");
+  s.innerHTML=`<path d="M12 21s-7.5-4.6-9.5-9.2C1 8.3 3.2 5 6.6 5c2 0 3.4 1.1 4.4 2.5C12 6.1 13.4 5 15.4 5c3.4 0 5.6 3.3 4.1 6.8C19.5 16.4 12 21 12 21z" fill="${on?"currentColor":"none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>`;return s}
+let profileWait=null;
+function ensureProfile(){
+  if(!S.email){openAuth("in");return Promise.resolve(false)}
+  if(!S.commReady){toast("Comments and collections aren't switched on yet");return Promise.resolve(false)}
+  if(S.profile)return Promise.resolve(true);
+  return new Promise(res=>{profileWait=res;
+    openPrompt({title:"Choose a display name",label:"Display name (shown with your comments and collections)",value:"",maxLength:32,async onSave(v){v=(v||"").trim().replace(/\s+/g," ");
+      if(v.length<2)return"Use at least 2 characters.";if(/@/.test(v))return"Please don't use your email as your display name.";
+      const r=await sb.from("profiles").insert({display_name:v});
+      if(r.error)return r.error.code==="23505"?"You already have a name. Refresh the page.":"Couldn't save it: "+r.error.message;
+      S.profile={user_id:S.uid,display_name:v};toast("Hi, "+v+"!");const f=profileWait;profileWait=null;f&&f(true)}})})}
+$("promptDlg").addEventListener("close",()=>{if(profileWait){const f=profileWait;profileWait=null;f(!!S.profile)}});
+function renameMe(){openPrompt({title:"Change display name",label:"Display name",value:S.profile?.display_name||"",maxLength:32,async onSave(v){v=(v||"").trim().replace(/\s+/g," ");
+  if(v.length<2)return"Use at least 2 characters.";if(/@/.test(v))return"Please don't use your email as your display name.";
+  const r=await sb.from("profiles").update({display_name:v,updated_at:new Date().toISOString()}).eq("user_id",S.uid);if(r.error)return"Couldn't save it: "+r.error.message;
+  S.profile.display_name=v;toast("Name updated");route()}})}
+
+/* ---------- Comments ---------- */
+async function renderComments(c,box){
+  if(!S.commReady){fillEl(box,);box.hidden=true;return}
+  if(c.locked){fillEl(box,h("p",{class:"note",text:"Comments open up once you can read this chapter."}));return}
+  const st={sort:LS.get("csort","top"),show:15,list:[],openReplies:new Set(),editing:null,replyTo:null};
+  const load=async()=>{const r=await sb.rpc("chapter_comments",{p_chapter:c.id});st.list=r.error?[]:(r.data||[]);if(r.error)console.warn(r.error);draw();
+    const n=st.list.filter(x=>!x.deleted).length;const jb=document.getElementById("jumpComments");if(jb)jb.textContent="Comments"+(n?" ("+n+")":"")};
+  const composer=(parent)=>{
+    if(!S.email)return h("div",{class:"cmlogin"},h("p",{class:"note",style:"margin:0",text:"Sign in to join the conversation."}),h("button",{type:"button",class:"btn sm",text:"Sign in",onclick:()=>openAuth("in")}),h("button",{type:"button",class:"linkbtn",text:"Create an account",onclick:()=>openAuth("up")}));
+    const ta=h("textarea",{class:"cmta",maxlength:"2000",rows:parent?"2":"3",placeholder:parent?"Write a reply…":"Share your thoughts on this chapter…","aria-label":parent?"Reply":"Comment"});
+    const cnt=h("span",{class:"mono cnt",text:"0/2000"});const sp=h("input",{type:"checkbox"});
+    const btn=h("button",{type:"submit",class:"btn sm primary",text:parent?"Reply":"Post comment",disabled:true});
+    const err=h("p",{class:"err",role:"alert",style:"margin:0"});
+    const grow=()=>{ta.style.height="auto";ta.style.height=Math.min(ta.scrollHeight,420)+"px";cnt.textContent=ta.value.length+"/2000";btn.disabled=!ta.value.trim()};
+    ta.addEventListener("input",grow);
+    ta.addEventListener("keydown",e=>{if(e.key==="Enter"&&(e.ctrlKey||e.metaKey)){e.preventDefault();form.requestSubmit()}});
+    const form=h("form",{class:"cmform"+(parent?" sub":""),novalidate:true,onsubmit:async e=>{e.preventDefault();err.textContent="";const body=ta.value.trim();if(!body)return;
+      if(!await ensureProfile())return;btn.disabled=true;btn.textContent="Posting…";
+      const r=await sb.from("comments").insert({chapter_id:c.id,book_id:c.book_id,parent_id:parent||null,body,spoiler:sp.checked});
+      btn.textContent=parent?"Reply":"Post comment";
+      if(r.error){btn.disabled=false;err.textContent=/slow down/i.test(r.error.message||"")?"Slow down a little: you can post 5 comments a minute.":/row-level|policy/i.test(r.error.message||"")?"You can't comment on this chapter right now.":"Couldn't post: "+r.error.message;return}
+      ta.value="";grow();if(parent){st.replyTo=null;st.openReplies.add(parent)}else if(st.sort==="old"){}else st.sort=st.sort==="top"?"top":"new";
+      toast(parent?"Reply posted":"Comment posted");await load()}},
+      h("div",{class:"cmrow"},S.profile?avatar(S.profile.display_name,S.uid):avatar(S.email,S.uid),ta),
+      h("div",{class:"cmbar"},h("label",{class:"check sm"},sp,"Contains spoilers"),cnt,parent?h("button",{type:"button",class:"btn sm",text:"Cancel",onclick:()=>{st.replyTo=null;draw()}}):null,btn),err);
+    if(parent)setTimeout(()=>ta.focus(),0);return form};
+  const like=async cm=>{if(!S.email){openAuth("in");return}
+    const was=cm.liked;cm.liked=!was;cm.likes=+cm.likes+(was?-1:1);draw();
+    const r=was?await sb.from("comment_likes").delete().eq("comment_id",cm.id).eq("user_id",S.uid):await sb.from("comment_likes").insert({comment_id:cm.id});
+    if(r.error){cm.liked=was;cm.likes=+cm.likes+(was?1:-1);draw();toast("Couldn't save your like. Try again.")}};
+  const item=(cm,isReply)=>{const mine=S.uid&&cm.user_id===S.uid;const editing=st.editing===cm.id;
+    let body;
+    if(cm.deleted)body=h("p",{class:"cmdel",text:"This comment was deleted."});
+    else if(editing){const ta=h("textarea",{class:"cmta",maxlength:"2000",rows:"3"});ta.value=cm.body;const sp=h("input",{type:"checkbox",checked:cm.spoiler?true:null});
+      body=h("form",{class:"cmform sub",onsubmit:async e=>{e.preventDefault();const v=ta.value.trim();if(!v)return;const r=await sb.from("comments").update({body:v,spoiler:sp.checked,edited_at:new Date().toISOString()}).eq("id",cm.id);
+          if(r.error){toast("Couldn't save the edit");return}st.editing=null;toast("Comment updated");await load()}},ta,
+        h("div",{class:"cmbar"},h("label",{class:"check sm"},sp,"Contains spoilers"),h("button",{type:"button",class:"btn sm",text:"Cancel",onclick:()=>{st.editing=null;draw()}}),h("button",{type:"submit",class:"btn sm primary",text:"Save"})));
+      setTimeout(()=>{ta.focus();ta.style.height=Math.min(ta.scrollHeight+4,420)+"px"},0)}
+    else{const t=h("p",{class:"cmtext",text:cm.body});
+      if(cm.spoiler){t.classList.add("spoiler");t.setAttribute("tabindex","0");t.setAttribute("role","button");t.setAttribute("aria-label","Spoiler hidden. Press to show.");
+        const reveal=()=>{t.classList.remove("spoiler");t.removeAttribute("role");t.removeAttribute("tabindex");t.removeAttribute("aria-label")};
+        t.addEventListener("click",reveal);t.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();reveal()}})}
+      body=h("div",{},cm.spoiler?h("span",{class:"sptag",text:"Spoiler"}):null,t)}
+    const acts=cm.deleted?null:h("div",{class:"cmacts"},
+      h("button",{type:"button",class:"cmlike"+(cm.liked?" on":""),"aria-pressed":String(!!cm.liked),"aria-label":(cm.liked?"Unlike":"Like")+" comment by "+cm.name,onclick:()=>like(cm)},heartIcon(cm.liked),h("span",{text:+cm.likes||""})),
+      !isReply?h("button",{type:"button",class:"cmact",text:"Reply",onclick:()=>{if(!S.email){openAuth("in");return}st.replyTo=cm.id;st.openReplies.add(cm.id);draw()}}):null,
+      mine&&!editing?h("button",{type:"button",class:"cmact",text:"Edit",onclick:()=>{st.editing=cm.id;draw()}}):null,
+      (mine||S.canEdit)&&!editing?(()=>{const b=confirmBtn("Delete",async()=>{const r=await sb.from("comments").update({deleted:true}).eq("id",cm.id);if(r.error){toast("Couldn't delete it");return}toast("Comment deleted");await load()});b.className="cmact danger";return b})():null);
+    return h("article",{class:"cm"+(isReply?" reply":""),id:"cm-"+cm.id},avatar(cm.deleted?"?":cm.name,cm.user_id),
+      h("div",{class:"cmmain"},h("div",{class:"cmhead"},cm.deleted?h("span",{class:"muted",text:"Deleted"}):h("a",{class:"cmname",href:"#reader/"+cm.user_id,text:cm.name}),cm.by_owner&&!cm.deleted?h("span",{class:"badge2",text:"Translator"}):null,
+        h("time",{class:"cmtime",datetime:cm.created_at,title:fmtDateTime(cm.created_at),text:ago(cm.created_at)}),cm.edited_at&&!cm.deleted?h("span",{class:"cmtime",text:"· edited"}):null),body,acts))};
+  function draw(){const L=st.list;const kids=new Map();for(const x of L)if(x.parent_id){if(!kids.has(x.parent_id))kids.set(x.parent_id,[]);kids.get(x.parent_id).push(x)}
+    let tops=L.filter(x=>!x.parent_id&&(!x.deleted||kids.has(x.id)));
+    const t=x=>Date.parse(x.created_at)||0;
+    tops.sort(st.sort==="new"?(a,b)=>t(b)-t(a):st.sort==="old"?(a,b)=>t(a)-t(b):(a,b)=>(+b.likes+(kids.get(b.id)?.length||0)*.5)-(+a.likes+(kids.get(a.id)?.length||0)*.5)||t(b)-t(a));
+    const n=L.filter(x=>!x.deleted).length;
+    fillEl(box,
+      h("div",{class:"cmheadbar"},h("h2",{},"Comments ",h("span",{class:"mono",text:n||""})),
+        h("div",{class:"seg sm",role:"group","aria-label":"Sort comments"},...[["top","Top"],["new","Newest"],["old","Oldest"]].map(([v,l])=>h("button",{type:"button","aria-pressed":String(st.sort===v),text:l,onclick:()=>{st.sort=v;LS.set("csort",v);draw()}})))),
+      composer(null),
+      tops.length?h("div",{class:"cmlist"},...tops.slice(0,st.show).map(cm=>{const rs=(kids.get(cm.id)||[]).sort((a,b)=>t(a)-t(b));const open=st.openReplies.has(cm.id)||rs.length<=2;
+        return h("div",{class:"cmthread"},item(cm,false),
+          rs.length?h("div",{class:"cmreplies"},...(open?rs:rs.slice(0,1)).map(r=>item(r,true)),!open?h("button",{type:"button",class:"linkbtn more-rep",text:"Show "+(rs.length-1)+" more "+(rs.length-1===1?"reply":"replies"),onclick:()=>{st.openReplies.add(cm.id);draw()}}):null):null,
+          st.replyTo===cm.id?h("div",{class:"cmreplies"},composer(cm.id)):null)}))
+        :h("p",{class:"note cmempty",text:"No comments yet. Be the first to share what you thought."}),
+      tops.length>st.show?h("div",{class:"morebar"},h("button",{type:"button",class:"btn",text:"Show more comments ("+(tops.length-st.show)+")",onclick:()=>{st.show+=15;draw()}})):null)}
+  fillEl(box,h("p",{class:"note",text:"Loading comments…"}));await load()}
+
+/* ---------- Collections ---------- */
+function collCard(c){const bs=(Array.isArray(c.books)?c.books:[]).slice(0,3);
+  const tiles=bs.length?bs.map(b=>{const col=COVERS[b.cover]||COVERS.rose;return h("span",{class:"ctile",style:`--cv-bg:${col[0]};--cv-fg:${col[1]}`},b.cover_url?h("img",{src:b.cover_url,alt:"",loading:"lazy"}):h("span",{text:b.title}))}):[h("span",{class:"ctile empty",text:"Empty"})];
+  return h("a",{class:"ccard",href:"#collection/"+c.id},h("span",{class:"collage n"+tiles.length},...tiles),
+    h("span",{class:"cinfo"},h("span",{class:"ctitle"},c.title,c.is_public?null:h("span",{class:"pill p-draft",text:"Private"})),
+      h("span",{class:"colmeta"},h("span",{text:"by "+c.owner_name}),h("span",{text:" · "+c.items+" "+(+c.items===1?"novel":"novels")})),
+      h("span",{class:"clikes"+(c.liked?" on":"")},heartIcon(c.liked),h("span",{text:c.likes||0}))))}
+async function listColls(opts){const r=await sb.rpc("list_collections",{p_sort:opts.sort||"popular",p_search:opts.search||null,p_user:opts.user||null,p_limit:opts.limit||24,p_offset:opts.offset||0});if(r.error)throw r.error;return r.data||[]}
+async function renderCollections(seq){const el=$("collsPage");document.title="Reader collections · "+siteName();
+  if(!S.commReady){fillEl(el,h("div",{class:"pagehead"},backLink("Home","")),emptyBox("Collections are coming soon",S.canEdit?"Run update-community.sql in Supabase to switch them on.":""));return}
+  const st=S.collsSt||(S.collsSt={sort:"popular",search:"",limit:24});
+  const grid=h("div",{class:"cgrid"});const more=h("div",{class:"morebar"});const mineBox=h("div");
+  const load=async()=>{fillEl(grid,h("p",{class:"note",text:"Loading collections…"}));let rows=[];try{rows=await listColls({sort:st.sort,search:st.search.trim()||null,limit:st.limit})}catch(e){console.warn(e)}
+    if(seq!==S.seq)return;fillEl(grid,...(rows.length?rows.map(collCard):[h("p",{class:"note",text:st.search?"No collections match that search.":"No public collections yet. Make the first one!"})]));
+    fillEl(more,...(rows.length&&+rows[0].total>rows.length?[h("button",{type:"button",class:"btn",text:"Show more",onclick:()=>{st.limit+=24;load()}})]:[]))};
+  let sT;const search=h("input",{type:"search",placeholder:"Search collections",value:st.search,"aria-label":"Search collections",oninput:e=>{st.search=e.target.value;clearTimeout(sT);sT=setTimeout(()=>{st.limit=24;load()},250)}});
+  fillEl(el,h("div",{class:"chero"},h("div",{},h("h1",{text:"Reader collections"}),h("p",{class:"note",text:"Favourite novels picked by readers, with a note on why they love each one."})),
+      h("button",{type:"button",class:"btn primary",text:"+ New collection",onclick:newCollection})),
+    mineBox,
+    h("div",{class:"ctools"},h("div",{class:"bsbox"},search),h("div",{class:"seg",role:"group","aria-label":"Sort collections"},...[["popular","Popular"],["new","Newest"]].map(([v,l])=>h("button",{type:"button","aria-pressed":String(st.sort===v),text:l,onclick:e=>{st.sort=v;st.limit=24;for(const b of e.target.parentNode.children)b.setAttribute("aria-pressed",String(b===e.target));load()}})))),
+    grid,more);
+  if(S.email){try{const mine=await listColls({user:S.uid,limit:100,sort:"new"});if(seq===S.seq&&mine.length)fillEl(mineBox,h("h2",{class:"csub",text:"Your collections"}),h("div",{class:"cgrid"},...mine.map(collCard)),h("h2",{class:"csub",text:"Everyone's collections"}))}catch{}}
+  load()}
+async function newCollection(bookToAdd){if(!await ensureProfile())return null;
+  return new Promise(res=>{openPrompt({title:"New collection",label:"Collection name",value:"",maxLength:80,async onSave(v){v=(v||"").trim();if(!v)return"Give it a name, like Comfort reads.";
+    const r=await sb.from("collections").insert({title:v}).select("id").single();if(r.error)return/row-level|policy/i.test(r.error.message||"")?"You've reached the limit of 50 collections.":"Couldn't create it: "+r.error.message;
+    if(typeof bookToAdd==="string")await sb.from("collection_items").insert({collection_id:r.data.id,book_id:bookToAdd,position:0});
+    toast("Collection created");res(r.data.id);if(typeof bookToAdd!=="string")go("collection/"+r.data.id)}})})}
+async function renderCollection(id,seq){const el=$("collPage");fillEl(el,h("p",{class:"count pad",text:"Loading collection"}));
+  if(!S.commReady){fillEl(el,h("div",{class:"pagehead"},backLink("Collections","collections")),emptyBox("Collections aren't switched on yet",""));return}
+  const [cr,ir]=await Promise.all([sb.from("collections").select("*").eq("id",id).maybeSingle(),sb.from("collection_items").select("*").eq("collection_id",id).order("position",{ascending:true})]);
+  if(seq!==S.seq)return;
+  if(cr.error||!cr.data){fillEl(el,h("div",{class:"pagehead"},backLink("Collections","collections")),emptyBox("Collection not found","It may be private or deleted."));return}
+  const c=cr.data;let items=(ir.data||[]).filter(i=>S.books.some(b=>b.id===i.book_id)).sort((a,b)=>a.position-b.position||Date.parse(a.added_at)-Date.parse(b.added_at));
+  const [pr,lr]=await Promise.all([sb.from("profiles").select("user_id,display_name").eq("user_id",c.user_id).maybeSingle(),sb.rpc("collection_like_info",{p_collection:id})]);
+  if(seq!==S.seq)return;
+  const owner=pr.data?.display_name||"Reader";const li=(Array.isArray(lr.data)?lr.data[0]:lr.data)||{likes:0,liked:false};
+  const mine=!!S.uid&&c.user_id===S.uid;let editing=false;
+  document.title=c.title+" · "+siteName();
+  const likeBtn=h("button",{type:"button",class:"btn likebig"+(li.liked?" on":""),"aria-pressed":String(!!li.liked)});
+  const drawLike=()=>{likeBtn.replaceChildren(heartIcon(li.liked),h("span",{text:(+li.likes||0)+" "+(+li.likes===1?"like":"likes")}));likeBtn.classList.toggle("on",!!li.liked);likeBtn.setAttribute("aria-pressed",String(!!li.liked))};drawLike();
+  likeBtn.onclick=async()=>{if(!S.email){openAuth("in");return}if(!c.is_public){toast("Private collections can't be liked");return}const was=li.liked;li.liked=!was;li.likes=+li.likes+(was?-1:1);drawLike();
+    const r=was?await sb.from("collection_likes").delete().eq("collection_id",id).eq("user_id",S.uid):await sb.from("collection_likes").insert({collection_id:id});
+    if(r.error){li.liked=was;li.likes=+li.likes+(was?1:-1);drawLike();toast("Couldn't save your like")}else if(!was)likeBtn.animate?.([{transform:"scale(1)"},{transform:"scale(1.12)"},{transform:"scale(1)"}],{duration:260})};
+  const copyBtn=h("button",{type:"button",class:"btn",text:"Copy link",onclick:async()=>{const url=location.origin+location.pathname+"#collection/"+id;try{await navigator.clipboard.writeText(url);toast("Link copied")}catch{prompt("Copy this link:",url)}}});
+  const head=h("header",{class:"chead"});
+  const drawHead=()=>{
+    if(editing){const ti=h("input",{class:"ctitle-in",maxlength:"80",value:c.title,"aria-label":"Collection name"});const de=h("textarea",{maxlength:"600",placeholder:"What ties these novels together?","aria-label":"Description"});de.value=c.description||"";
+      const pub=h("input",{type:"checkbox",checked:c.is_public?true:null});const err=h("p",{class:"err",style:"margin:0"});
+      fillEl(head,h("form",{class:"cedit",onsubmit:async e=>{e.preventDefault();const t=ti.value.trim();if(!t){err.textContent="Give it a name.";return}
+          const r=await sb.from("collections").update({title:t,description:de.value.trim(),is_public:pub.checked,updated_at:new Date().toISOString()}).eq("id",id);if(r.error){err.textContent="Couldn't save: "+r.error.message;return}
+          Object.assign(c,{title:t,description:de.value.trim(),is_public:pub.checked});editing=false;drawHead();toast("Collection saved")}},
+        ti,de,h("label",{class:"check"},pub,"Public: anyone can see and like it"),err,
+        h("div",{class:"actions"},h("button",{type:"submit",class:"btn primary",text:"Save"}),h("button",{type:"button",class:"btn",text:"Cancel",onclick:()=>{editing=false;drawHead()}}),
+          (()=>{const b=confirmBtn("Delete collection",async()=>{const r=await sb.from("collections").delete().eq("id",id);if(r.error){toast("Couldn't delete it");return}toast("Collection deleted");go("collections")});return b})())));ti.focus();return}
+    fillEl(head,h("p",{class:"eyebrow",style:"margin:0"},"Collection",c.is_public?null:h("span",{class:"pill p-draft",style:"margin-left:8px",text:"Private"})),
+      h("h1",{text:c.title}),
+      h("p",{class:"cby"},avatar(owner,c.user_id,"sm"),h("span",{},"by ",h("a",{href:"#reader/"+c.user_id,text:owner})),h("span",{class:"muted",text:" · "+items.length+" "+(items.length===1?"novel":"novels")+" · updated "+ago(c.updated_at)})),
+      c.description?h("p",{class:"cdesc",text:c.description}):null,
+      h("div",{class:"actions"},c.is_public?likeBtn:null,c.is_public?copyBtn:null,mine?h("button",{type:"button",class:"btn",text:"Edit details",onclick:()=>{editing=true;drawHead()}}):null))};
+  const list=h("ol",{class:"clist"});
+  const savePositions=async()=>{for(let i=0;i<items.length;i++){if(items[i].position!==i){items[i].position=i;await sb.from("collection_items").update({position:i}).eq("collection_id",id).eq("book_id",items[i].book_id)}}
+    await sb.from("collections").update({updated_at:new Date().toISOString()}).eq("id",id)};
+  let dragFrom=-1;
+  const drawList=()=>{fillEl(list,...items.map((it,i)=>{const b=S.books.find(x=>x.id===it.book_id);
+    const row=h("li",{class:"citem"+(mine?" mine":""),draggable:mine?"true":null},
+      mine?h("span",{class:"grip",title:"Drag to reorder","aria-hidden":"true",text:"⋮⋮"}):null,
+      h("span",{class:"cnum",text:i+1}),
+      h("a",{class:"ccov",href:"#book/"+b.id,tabindex:"-1","aria-hidden":"true"},cover(b,true)),
+      h("div",{class:"cbody"},h("a",{class:"ltitle",href:"#book/"+b.id,text:b.title}),
+        h("div",{class:"lmeta"},h("span",{class:"st-"+(b.status||"ongoing"),text:STATUS[b.status]||"Ongoing"}),chCount(b)?h("span",{text:chCount(b)+" ch"}):null,(b.genres||[]).length?h("span",{text:(b.genres||[]).slice(0,3).join(", ")}):null),
+        mine?noteEditor(it):it.note?h("blockquote",{class:"cnote"},h("p",{text:it.note}),h("footer",{},"— "+owner)):null),
+      mine?h("div",{class:"cmove"},
+        h("button",{type:"button",class:"iconbtn sm","aria-label":"Move up",disabled:i===0?true:null,text:"↑",onclick:async()=>{[items[i-1],items[i]]=[items[i],items[i-1]];drawList();await savePositions()}}),
+        h("button",{type:"button",class:"iconbtn sm","aria-label":"Move down",disabled:i===items.length-1?true:null,text:"↓",onclick:async()=>{[items[i+1],items[i]]=[items[i],items[i+1]];drawList();await savePositions()}}),
+        (()=>{const x=confirmBtn("Remove",async()=>{const r=await sb.from("collection_items").delete().eq("collection_id",id).eq("book_id",it.book_id);if(r.error){toast("Couldn't remove it");return}items=items.filter(z=>z!==it);drawList();drawHead();toast("Removed")});return x})()):null);
+    if(mine){row.addEventListener("dragstart",e=>{dragFrom=i;row.classList.add("dragging");e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",String(i))});
+      row.addEventListener("dragend",()=>row.classList.remove("dragging"));
+      row.addEventListener("dragover",e=>{e.preventDefault();row.classList.add("dropto")});row.addEventListener("dragleave",()=>row.classList.remove("dropto"));
+      row.addEventListener("drop",async e=>{e.preventDefault();row.classList.remove("dropto");if(dragFrom<0||dragFrom===i)return;const [m]=items.splice(dragFrom,1);items.splice(i,0,m);dragFrom=-1;drawList();await savePositions();toast("Order saved")})}
+    return row}));
+    if(!items.length)fillEl(list,h("li",{class:"note cempty",text:mine?"No novels yet. Add some below, or use the Add to collection button on any book page.":"This collection is empty."}))};
+  function noteEditor(it){const ta=h("textarea",{class:"cnote-in",maxlength:"500",rows:"2",placeholder:"Why do you love it? (shown to everyone who sees this collection)","aria-label":"Your note"});ta.value=it.note||"";
+    const stt=h("span",{class:"mono savest",role:"status"});let t;
+    ta.addEventListener("input",()=>{stt.textContent="…";clearTimeout(t);t=setTimeout(async()=>{const v=ta.value.trim();const r=await sb.from("collection_items").update({note:v}).eq("collection_id",id).eq("book_id",it.book_id);
+      if(r.error){stt.textContent="Not saved";return}it.note=v;stt.textContent="Saved ✓";setTimeout(()=>{if(stt.textContent==="Saved ✓")stt.textContent=""},1800)},700)});
+    return h("div",{class:"cnotewrap"},ta,stt)}
+  let adder=null;
+  if(mine){const res=h("div",{class:"hresults addres",hidden:true});const inp=h("input",{type:"search",placeholder:"Add a novel: start typing a title","aria-label":"Add a novel"});
+    inp.addEventListener("input",()=>{const q=inp.value;const found=matches(q).filter(b=>!items.some(i=>i.book_id===b.id)).slice(0,6);
+      res.replaceChildren(...found.map(b=>h("button",{type:"button",class:"hres",onclick:async()=>{const r=await sb.from("collection_items").insert({collection_id:id,book_id:b.id,position:items.length});
+        if(r.error){toast("Couldn't add it");return}items.push({collection_id:id,book_id:b.id,note:"",position:items.length,added_at:new Date().toISOString()});inp.value="";res.hidden=true;drawList();drawHead();toast("Added "+b.title)}},
+        thumb(b),h("span",{class:"rb"},h("span",{class:"rt",text:b.title}),h("span",{class:"rs",text:b.author||""})))));res.hidden=!q.trim()||!found.length});
+    adder=h("div",{class:"cadd"},h("h2",{class:"csub",text:"Add novels"}),h("div",{class:"hsearch",style:"max-width:none"},inp,res))}
+  drawHead();drawList();
+  fillEl(el,h("div",{class:"pagehead"},backLink("Collections","collections")),head,list,adder)}
+async function renderUser(uid,seq){const el=$("userPage");fillEl(el,h("p",{class:"count pad",text:"Loading"}));
+  if(!S.commReady){fillEl(el,emptyBox("Profiles aren't switched on yet",""));return}
+  const [pr,cl]=await Promise.all([sb.from("profiles").select("user_id,display_name,created_at").eq("user_id",uid).maybeSingle(),listColls({user:uid,limit:100,sort:"new"}).catch(()=>[])]);
+  if(seq!==S.seq)return;const name=pr.data?.display_name||"Reader";const me=S.uid===uid;
+  document.title=name+" · "+siteName();
+  fillEl(el,h("div",{class:"pagehead"},backLink("Collections","collections")),
+    h("header",{class:"uhead"},avatar(name,uid,"lg"),h("div",{},h("h1",{text:name}),h("p",{class:"note",style:"margin:4px 0 0",text:pr.data?.created_at?"Reader since "+fmtDate(String(pr.data.created_at).slice(0,10)):""}),
+      me?h("div",{class:"actions",style:"margin-top:10px"},h("button",{type:"button",class:"btn sm",text:"Change display name",onclick:renameMe}),h("button",{type:"button",class:"btn sm primary",text:"+ New collection",onclick:newCollection})):null)),
+    h("h2",{class:"csub",text:me?"Your collections":"Collections"}),
+    cl.length?h("div",{class:"cgrid"},...cl.map(collCard)):h("p",{class:"note",text:me?"You haven't made a collection yet.":"No public collections yet."}))}
+/* Add to collection (from a book page) */
+async function openAddToCollection(book){if(!await ensureProfile())return;
+  $("acBook").textContent=book.title;$("acErr").textContent="";$("acNewTitle").value="";const list=$("acList");fillEl(list,h("p",{class:"note",text:"Loading your collections…"}));
+  if(!$("addCollDlg").open)$("addCollDlg").showModal();
+  let mine=[];try{mine=await listColls({user:S.uid,limit:100,sort:"new"})}catch{}
+  const ids=mine.map(c=>c.id);let inSet=new Map();
+  if(ids.length){const r=await sb.from("collection_items").select("collection_id,note").eq("book_id",book.id).in("collection_id",ids);for(const x of r.data||[])inSet.set(x.collection_id,x)}
+  const draw=()=>{fillEl(list,...(mine.length?mine.map(c=>{const on=inSet.has(c.id);
+    const row=h("div",{class:"acrow"+(on?" on":"")},
+      h("label",{class:"check"},h("input",{type:"checkbox",checked:on?true:null,onchange:async e=>{const want=e.target.checked;e.target.disabled=true;
+        const r=want?await sb.from("collection_items").insert({collection_id:c.id,book_id:book.id,position:+c.items||0}):await sb.from("collection_items").delete().eq("collection_id",c.id).eq("book_id",book.id);
+        e.target.disabled=false;if(r.error){e.target.checked=!want;$("acErr").textContent="Couldn't update that collection.";return}
+        if(want){inSet.set(c.id,{collection_id:c.id,note:""});c.items=+c.items+1;toast("Added to "+c.title)}else{inSet.delete(c.id);c.items=Math.max(0,+c.items-1);toast("Removed from "+c.title)}draw()}}),
+        h("span",{},h("b",{text:c.title}),h("span",{class:"note",text:" · "+c.items+" "+(+c.items===1?"novel":"novels")+(c.is_public?"":" · private")}))),
+      on?(()=>{const ta=h("textarea",{class:"cnote-in",maxlength:"500",rows:"2",placeholder:"Why do you love it? (optional)","aria-label":"Note for "+c.title});ta.value=inSet.get(c.id).note||"";const stt=h("span",{class:"mono savest"});let t;
+        ta.addEventListener("input",()=>{stt.textContent="…";clearTimeout(t);t=setTimeout(async()=>{const r=await sb.from("collection_items").update({note:ta.value.trim()}).eq("collection_id",c.id).eq("book_id",book.id);stt.textContent=r.error?"Not saved":"Saved ✓";if(!r.error)inSet.get(c.id).note=ta.value.trim()},600)});
+        return h("div",{class:"cnotewrap"},ta,stt)})():null);return row})
+      :[h("p",{class:"note",text:"You don't have any collections yet. Create one below."})]))};
+  draw();
+  $("acNew").onsubmit=async e=>{e.preventDefault();const v=$("acNewTitle").value.trim();if(!v){$("acErr").textContent="Type a name for the new collection.";return}
+    const r=await sb.from("collections").insert({title:v}).select("id").single();if(r.error){$("acErr").textContent="Couldn't create it: "+r.error.message;return}
+    await sb.from("collection_items").insert({collection_id:r.data.id,book_id:book.id,position:0});
+    mine.unshift({id:r.data.id,title:v,items:1,is_public:true});inSet.set(r.data.id,{collection_id:r.data.id,note:""});$("acNewTitle").value="";$("acErr").textContent="";draw();toast("Created "+v)}}
+async function bookCollectionsSection(bookId,seq){if(!S.commReady)return null;const r=await sb.rpc("book_collections",{p_book:bookId});if(r.error||!r.data?.length||seq!==S.seq)return null;
+  return h("section",{class:"bcolls"},h("div",{class:"tochead"},h("h2",{},"In readers' collections")),
+    h("div",{class:"bcgrid"},...r.data.map(x=>h("a",{class:"bccard",href:"#collection/"+x.id},
+      x.note?h("p",{class:"bcnote",text:"“"+x.note+"”"}):null,
+      h("span",{class:"bcfoot"},avatar(x.owner_name,x.user_id,"sm"),h("span",{},h("b",{text:x.title}),h("span",{class:"note",text:" by "+x.owner_name})),h("span",{class:"clikes"},heartIcon(false),h("span",{text:x.likes||0})))))))}
+
 /* ---------- Routing ---------- */
 function parseHash(){const raw=decodeURIComponent(location.hash.replace(/^#\/?/,""));if(/access_token=|error_description=|type=recovery/.test(raw))return{name:"home"};const [name,id,sub]=raw.split("/");
   if((name==="book"||name==="read")&&id)return{name,id};
   if(name==="admin"){if(id==="chapter"){const parts=raw.split("/");return{name,col:"chapter",id:parts[2]||"new",book:parts[3]||null}}return{name,col:COLS_OK.includes(id)?id:"novels",id:sub||null}}
   if(name==="manage"&&id)return{name:"admin",col:"chapters",id};
   if(name==="dashboard")return{name:"admin",col:"novels"};
-  if(name==="browse")return{name};return{name:"home"}}
+  if((name==="collection"||name==="reader")&&id)return{name,id};
+  if(name==="browse"||name==="collections")return{name};return{name:"home"}}
 function go(hash){if(location.hash.replace(/^#/,"")===hash)route();else location.hash=hash}
-const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin"};
+const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin",collections:"collsPage",collection:"collPage",reader:"userPage"};
 function route(){
   const prev=S.route;let r=parseHash();
   const same=(a,b)=>a.name===b.name&&a.col===b.col&&a.id===b.id;
@@ -1074,20 +1337,23 @@ function route(){
   S.route=r;const seq=++S.seq;
   for(const [k,id] of Object.entries(VIEWS))$(id).hidden=k!==r.name;
   document.body.classList.toggle("reading",r.name==="read");document.body.classList.toggle("browsing",r.name==="browse");document.body.classList.toggle("is-admin",r.name==="admin");
-  const cur={navHome:r.name==="home",navBrowse:r.name==="browse",navDash:r.name==="admin"};
+  const cur={navHome:r.name==="home",navBrowse:r.name==="browse",navColls:/^(collections|collection|reader)$/.test(r.name),navDash:r.name==="admin"};
   for(const [id,on] of Object.entries(cur))on?$(id).setAttribute("aria-current","page"):$(id).removeAttribute("aria-current");
   closeResults();if(r.name==="browse"&&$("hq").value!==S.q)$("hq").value=S.q;
   applyReaderPrefs(r.name==="read");
-  if(!/^(book|read|admin)$/.test(r.name))document.title=siteName();
+  if(!/^(book|read|admin|collections|collection|reader)$/.test(r.name))document.title=siteName();
   if(keep(r.name)){r.name==="home"?renderHome(seq):renderLibrary();if(prev.name!==r.name)requestAnimationFrame(()=>window.scrollTo(0,(S.scroll||{})[r.name]||0))}
   else{window.scrollTo(0,0);
     if(r.name==="admin")renderAdmin(r.col,r.id);
     else if(r.name==="book")renderBook(r.id,seq);
+    else if(r.name==="collections")renderCollections(seq);
+    else if(r.name==="collection")renderCollection(r.id,seq);
+    else if(r.name==="reader")renderUser(r.id,seq);
     else if(r.name==="read"){if(sb)renderReader(r.id,seq)}}
 }
 function rerender(){const r=S.route,seq=S.seq;
   if(r.name==="browse")renderLibrary();else if(r.name==="home")renderHome(seq);else if(r.name==="admin"){if(r.col==="chapter"&&S.chOpen){}else if(r.col==="novels"&&r.id&&S.edOpen&&(r.id==="new"||S.books.some(b=>b.id===r.id))){if(r.id!=="new"&&!S.edDirty)edMeta(S.books.find(b=>b.id===r.id));refreshList()}else renderAdmin(r.col,(r.col==="novels"||r.col==="chapter")?r.id:null)}
-  else if(r.name==="book")renderBook(r.id,seq)}
+  else if(r.name==="book")renderBook(r.id,seq);else if(r.name==="collections")renderCollections(seq)}
 window.addEventListener("hashchange",route);
 
 /* ---------- Wiring ---------- */
