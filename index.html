@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -29,8 +29,8 @@
     <nav class="hnav" aria-label="Main">
       <a href="#" id="navHome" class="nh">Home</a>
       <a href="#browse" id="navBrowse">Browse</a>
-      <a href="#dashboard" id="navDash" hidden>Dashboard</a>
-      <button type="button" class="iconbtn" id="themeBtn" aria-label="Switch theme"></button>
+      <a href="#admin/novels" id="navDash" hidden>Dashboard</a>
+      <button type="button" class="iconbtn themebtn" id="themeBtn" aria-label="Switch theme"></button>
     </nav>
   </div>
 </header>
@@ -86,34 +86,25 @@
 
   <section id="bookPage" class="bookpage" hidden></section>
   <section id="reader" class="reader" hidden></section>
-  <section id="manage" class="dash" hidden></section>
-
-  <section id="dashboard" class="dash" hidden>
-    <div class="tiles" id="tiles"></div>
-
-    <div class="panel">
-      <div class="panel-head"><h2>Books</h2>
-        <div class="tools"><input id="dbq" type="search" placeholder="Find a book" aria-label="Find a book"><button type="button" class="btn primary" id="addBook">Add book</button></div>
-      </div>
-      <div class="tscroll"><table><thead><tr><th>Title</th><th>Genres</th><th>Status</th><th>Access</th><th>Chapters</th><th></th></tr></thead><tbody id="bookRows"></tbody></table></div>
-      <div class="panel-empty" id="bookEmpty" hidden>No books yet. Add your first one.</div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head"><h2>Paid members</h2>
-        <div class="tools">
-          <input id="mq" type="search" placeholder="Find a member" aria-label="Find a member">
-          <select id="mStatus" aria-label="Member status"><option value="all">All statuses</option><option value="active">Active</option><option value="paused">Paused</option><option value="cancelled">Cancelled</option></select>
-          <button type="button" class="btn primary" id="addMember">Add member</button>
-        </div>
-      </div>
-      <div class="tscroll"><table><thead><tr><th>Member</th><th>Tier</th><th>Status</th><th>Since</th><th>Renews</th><th>Notes</th><th></th></tr></thead><tbody id="memberRows"></tbody></table></div>
-      <div class="panel-empty" id="memberEmpty" hidden>No paid members yet. Add one when someone subscribes.</div>
-    </div>
-
-    <div class="panel">
-      <div class="panel-head"><h2>Site settings</h2></div>
-      <form class="panel-body form" id="cfgForm">
+  <section id="admin" class="adminshell" hidden>
+    <aside class="aside">
+      <a class="aback" href="#">← View site</a>
+      <nav class="anav" aria-label="Dashboard">
+        <p class="agroup">Content</p>
+        <a href="#admin/novels" data-col="novels">Novels</a>
+        <a href="#admin/chapters" data-col="chapters">Chapters</a>
+        <a href="#admin/genres" data-col="genres">Genres</a>
+        <p class="agroup">Readers</p>
+        <a href="#admin/members" data-col="members">Paid members</a>
+        <p class="agroup">Site</p>
+        <a href="#admin/settings" data-col="settings">Settings</a>
+      </nav>
+      <div class="afoot"><button type="button" class="iconbtn themebtn" aria-label="Switch theme"></button><button type="button" class="btn sm" id="aLogout">Log out</button></div>
+    </aside>
+    <div class="amain" id="amain"></div>
+  </section>
+  <div id="stash" hidden>
+      <form class="form apanel" id="cfgForm">
         <div class="field"><label for="cName">Site name</label><input id="cName" maxlength="60"></div>
         <div class="field"><label for="cTag">Tagline</label><input id="cTag" maxlength="120"></div>
         <div class="field"><label for="cJoin">Membership link</label><input id="cJoin" placeholder="https://www.patreon.com/yourpage"><span class="hint">Readers see this on members-only books.</span></div>
@@ -121,8 +112,7 @@
         <div class="field full"><label for="cAnn">Announcements</label><textarea id="cAnn" maxlength="2000" style="min-height:90px" placeholder="New chapters every Friday!&#10;Join our Discord: https://discord.gg/..."></textarea><span class="hint">Shown at the top of the home page. One announcement per line. Links work. Leave empty to hide the box.</span></div>
         <div class="full actions"><button class="btn primary" type="submit">Save settings</button><span class="err" id="cfgErr"></span></div>
       </form>
-    </div>
-  </section>
+  </div>
 </main>
 
 <footer class="foot" style="padding-left:max(0px,env(safe-area-inset-left,0px))">
@@ -133,8 +123,8 @@
 <dialog id="chapterDlg" class="wide" aria-labelledby="chDlgTitle">
   <form class="dlg" id="chapterForm" novalidate>
     <div class="dlg-head"><h2 id="chDlgTitle">Add chapter</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
-    <p class="note" id="chBook"></p>
     <div class="form chform">
+      <div class="field full"><label for="chBookSel">Novel</label><select id="chBookSel"></select></div>
       <div class="field"><label for="chNum">Chapter number</label><input id="chNum" type="number" min="0" step="any" inputmode="decimal" required></div>
       <div class="field"><label for="chTitle">Chapter title (optional)</label><input id="chTitle" maxlength="160"></div>
       <div class="field full"><label for="chBody">Chapter text</label>
@@ -203,10 +193,18 @@
   </form>
 </dialog>
 
+<dialog id="promptDlg" class="narrow" aria-labelledby="pTitle">
+  <form class="dlg" id="promptForm" novalidate>
+    <div class="dlg-head"><h2 id="pTitle">Rename</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <div class="field"><label for="pInput" id="pLabel">Name</label><input id="pInput" maxlength="40"></div>
+    <div class="actions"><button class="btn primary" type="submit" id="pSave">Save</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="pErr"></span></div>
+  </form>
+</dialog>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
