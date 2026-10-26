@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -71,17 +71,30 @@
     </aside>
   </section>
 
-  <section id="library" hidden>
-    <div class="browsehead"><h2>Browse</h2>
-      <div class="selects">
-        <select id="fStatus" aria-label="Status"><option value="all">Any status</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select>
-        <select id="fAccess" aria-label="Access"><option value="all">Free and members</option><option value="free">Free to read</option><option value="members">Members only</option></select>
-        <select id="fSort" aria-label="Sort"><option value="updated">Latest update</option><option value="new">Newest added</option><option value="az">Title A to Z</option><option value="chapters">Most chapters</option></select>
-      </div>
+  <section id="library" class="browse" hidden>
+    <h2 class="vh">Browse</h2>
+    <div class="bsearch">
+      <div class="bsbox"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="bq" type="search" placeholder="Search titles, authors or genres" aria-label="Search books" autocomplete="off"></div>
+      <button type="button" class="advbtn" id="advBtn" aria-expanded="false" aria-controls="advRow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>Advanced filters<span class="badge" id="advCount" hidden></span></button>
     </div>
-    <div class="rail" id="rail" aria-label="Filter by genre"></div>
-    <div class="resultbar"><span class="count" id="count">Loading the shelf</span><button type="button" class="linkbtn" id="clear" hidden>Clear filters</button></div>
-    <div class="grid" id="grid"></div>
+    <div class="fgrid">
+      <label class="fl"><span class="flab">Sort by</span><select id="fSort"><option value="updated">Latest update</option><option value="popular">Most popular</option><option value="new">Newest added</option><option value="az">Title A to Z</option><option value="chapters">Most chapters</option></select></label>
+      <div class="fl"><span class="flab" id="gLbl">Genres</span><div class="dd" id="ddGenres"><button type="button" class="ddbtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="gLbl gVal"><span class="ddval" id="gVal">Any</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="ddpanel wide" role="group" aria-labelledby="gLbl" hidden></div></div></div>
+      <label class="fl"><span class="flab">Status</span><select id="fStatus"><option value="">Any</option><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select></label>
+      <label class="fl"><span class="flab">Access</span><select id="fAccess"><option value="">Any</option><option value="free">Free to read</option><option value="members">Members only</option></select></label>
+    </div>
+    <div class="fgrid adv" id="advRow" hidden>
+      <label class="fl"><span class="flab">Minimum chapters</span><input id="fMinCh" type="number" min="0" step="1" inputmode="numeric" placeholder="Any"></label>
+      <label class="fl"><span class="flab">Updated within</span><select id="fUpd"><option value="">Any time</option><option value="1">Last 24 hours</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 3 months</option></select></label>
+      <div class="fl"><span class="flab" id="auLbl">Authors</span><div class="dd" id="ddAuthors"><button type="button" class="ddbtn" aria-haspopup="true" aria-expanded="false" aria-labelledby="auLbl auVal"><span class="ddval" id="auVal">Any</span><svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="ddpanel" role="group" aria-labelledby="auLbl" hidden></div></div></div>
+      <label class="fl"><span class="flab">Readable</span><select id="fHere"><option value="">Anywhere</option><option value="site">On this site</option></select></label>
+    </div>
+    <div class="fchips" id="fchips"></div>
+    <div class="bbar"><span class="count" id="count">Loading the shelf</span>
+      <div class="viewtog" role="group" aria-label="Layout"><button type="button" data-view="list" aria-label="List view" title="List view"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button><button type="button" data-view="grid" aria-label="Grid view" title="Grid view"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button></div></div>
+    <div id="results"></div>
+    <div class="morebar"><button type="button" class="btn" id="bMore" hidden>Show more</button></div>
     <div id="libEmpty" hidden></div>
   </section>
 
@@ -206,6 +219,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
