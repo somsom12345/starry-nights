@@ -64,7 +64,7 @@ async function loadPrivate(){
 async function refresh(){try{await loadPublic();await loadPrivate()}catch(e){console.error(e);showNotice("Couldn't load the library. Refresh the page to try again.")}rerender()}
 async function checkOwner(){const {data:{session}}=await sb.auth.getSession();S.session=session;S.uid=session?.user?.id||null;S.email=(session?.user?.email||"").toLowerCase();if(!session)return false;const {data,error}=await sb.rpc("is_owner");return !error&&data===true}
 /* Tiers & access */
-function tierById(id){return S.tiers.find(t=>t.id===id)}
+function tierById(id){return (S.tiers||[]).find(t=>t.id===id)}
 function money(n){n=+n||0;return "$"+(Number.isInteger(n)?n:n.toFixed(2))}
 function activeMine(){const now=Date.now();return(S.mine||[]).filter(m=>m.status==="active"&&(!m.expires_at||Date.parse(m.expires_at)>now))}
 function canReadTier(tid){if(!tid||S.canEdit)return true;const need=tierById(tid);if(!need)return false;
@@ -356,6 +356,50 @@ async function renderBook(id,seq){
 }
 
 /* ---------- Reader ---------- */
+/* ---------- Members card (one per tier) ---------- */
+const CARD_STORY="Thank you for reading this far. Members get the next chapters early, and every pledge keeps the translations coming.";
+const CARD_STICK="Support us\nearly access";
+function parseFields(txt){return String(txt||"").split("\n").map(x=>x.trim()).filter(Boolean).slice(0,6).map(x=>{const i=x.indexOf(":");return i>0?{l:x.slice(0,i).trim(),v:x.slice(i+1).trim()}:{l:"",v:x}})}
+function autoFields(t,b,from){return[["tier",t?.name||"Members"],["price",money(t?.price)+" / month"],["novel",t?.book_id?(b?.title||"This novel"):"Every novel"],["unlocks",from!=null?"Ch. "+num(from)+" onwards":"Advance chapters"]].map(([l,v])=>({l,v}))}
+function cardData(t,ctx={}){const c=t?.card||{};const b=ctx.book&&ctx.book.cover!==undefined?ctx.book:(t?.book_id?S.books.find(x=>x.id===t.book_id):ctx.book)||null;
+  const f=parseFields(c.fields);
+  return{title:c.title||t?.name||"Members",sub:c.sub||"members card",story:c.story||(t?.description||"").split("\n")[0]||CARD_STORY,
+    fields:f.length?f:autoFields(t,b,ctx.from),label:c.label||"",sign:c.sign||siteName().split(/\s+/).slice(0,2).join(" "),stamp:c.stamp||"Members only",
+    tri:c.tri==="-"?"":(c.tri||"VIP zone"),stick:c.stick==="-"?"":(c.stick||CARD_STICK),photo:c.photo_url||"",stickImg:c.sticker_url||"",
+    coverBook:b&&b.title?b:null,code:t?.id||"members"}}
+function svgSpan(cls,markup){const e=h("span",{class:cls,"aria-hidden":"true"});e.innerHTML=markup;return e}
+const SVG_CLIP='<svg viewBox="0 0 40 110"><defs><linearGradient id="clipg" x1="0" x2="1"><stop offset="0" stop-color="#8E959C"/><stop offset=".45" stop-color="#F4F6F8"/><stop offset="1" stop-color="#9AA1A8"/></linearGradient></defs><path d="M13 34V88a10 10 0 0 0 20 0V20a14 14 0 0 0-28 0v62a6 6 0 0 0 12 0V34" fill="none" stroke="#5E646B" stroke-width="4.6" stroke-linecap="round" opacity=".35" transform="translate(1.2 1.6)"/><path d="M13 34V88a10 10 0 0 0 20 0V20a14 14 0 0 0-28 0v62a6 6 0 0 0 12 0V34" fill="none" stroke="url(#clipg)" stroke-width="4" stroke-linecap="round"/></svg>';
+const SVG_STAR='<svg viewBox="0 0 100 100"><path d="M50 4l13.6 30.4 33 3.6-24.7 22.3 7 32.6L50 76.4 21.1 92.9l7-32.6L3.4 38l33-3.6z" fill="currentColor" stroke="rgba(0,0,0,.18)" stroke-width="2" stroke-linejoin="round"/></svg>';
+function triSvg(text){const t=String(text).replace(/[<>&"]/g,"");return svgSpan("tctri",`<svg viewBox="0 0 100 90"><path d="M50 6 95 84H5z" fill="#F4C21A" stroke="#1B1A17" stroke-width="5" stroke-linejoin="round"/><circle cx="50" cy="47" r="10" fill="none" stroke="#1B1A17" stroke-width="2.6"/><circle cx="46.5" cy="44.5" r="1.5" fill="#1B1A17"/><circle cx="53.5" cy="44.5" r="1.5" fill="#1B1A17"/><path d="M45 50a6 6 0 0 0 10 0" fill="none" stroke="#1B1A17" stroke-width="2.2" stroke-linecap="round"/><text x="50" y="74" text-anchor="middle" font-family="Courier Prime,Courier New,monospace" font-weight="700" font-size="10.5" fill="#1B1A17"${t.length>7?' textLength="58" lengthAdjust="spacingAndGlyphs"':""}>${t.toUpperCase()}</text></svg>`)}
+function barcodeEl(code){let seed=7;for(const ch of String(code))seed=(seed*31+ch.charCodeAt(0))>>>0;const rnd=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296};
+  let x=0,bars="",i=0;while(x<180){const w=1+Math.floor(rnd()*3.2);if(i%2===0)bars+=`<rect x="${x}" width="${w}" height="44"/>`;x+=w+(i%2===0?0:1);i++}
+  let digits="";for(let k=0;k<12;k++)digits+=Math.floor(rnd()*10);
+  const e=svgSpan("tcbar",`<svg viewBox="0 0 ${x} 44" preserveAspectRatio="none" fill="#1B1A17">${bars}</svg>`);e.append(h("span",{text:digits}));return e}
+function memberCard(d){const [s1,s2]=(d.stick||"").split("\n");
+  const ph=d.photo?h("img",{src:d.photo,alt:"",loading:"lazy",decoding:"async"}):d.coverBook?cover(d.coverBook,true):h("span",{class:"tcmono",text:(d.title||"S").trim()[0]||"S"});
+  return h("div",{class:"tcwrap"},h("div",{class:"tcard"+(d.stick?" has-stick":"")+(d.tri?" has-tri":"")},
+    h("div",{class:"tcleft"},
+      h("div",{class:"tcphoto"},h("div",{class:"tcph"},ph),svgSpan("tcclip",SVG_CLIP),svgSpan("tcstar s1",SVG_STAR),svgSpan("tcstar s2",SVG_STAR),d.label?h("span",{class:"tclabel",text:d.label}):null),
+      barcodeEl(d.code)),
+    h("div",{class:"tchd"},h("span",{class:"tcname",text:d.title}),h("span",{class:"tcsub",text:d.sub})),
+    h("div",{class:"tcmain"},
+      h("p",{class:"tcstory",text:d.story}),
+      d.fields.length?h("dl",{class:"tcform"+(d.fields.length%2?" odd":"")},...d.fields.map(f=>h("div",{class:"tcf"},h("dt",{text:f.l?f.l+":":""}),h("dd",{text:f.v})))):null,
+      d.sign?h("p",{class:"tcsign",text:d.sign}):null),
+    d.stick?h("span",{class:"tcstick"},h("span",{class:"a",text:s1||""}),s2?h("span",{class:"b",text:s2}):null):null,
+    d.tri?triSvg(d.tri):null,
+    d.stamp?h("span",{class:"tcstamp",text:d.stamp}):null,
+    d.stickImg?h("img",{class:"tcsimg",src:d.stickImg,alt:""}):null))}
+function paywall(t,b,mode,from){const join=t.patreon_url||S.config.join_url;
+  return h("section",{class:"paywall "+mode,"aria-label":"Members only"},
+    h("p",{class:"pwkick",text:mode==="end"?"That was the last free chapter":"Members only"}),
+    h("h3",{class:"pwhead",text:mode==="end"?`The story continues for ${t.name} members`:`Chapter ${num(from)} unlocks with ${t.name}`}),
+    memberCard(cardData(t,{book:b,from})),
+    h("p",{class:"pwprice"},h("b",{text:money(t.price)}),` a month on Patreon, or any higher tier${t.book_id?" for "+(b.title||"this novel"):""}.`),
+    h("div",{class:"actions pwacts"},isUrl(join)?h("a",{class:"btn primary",href:join,target:"_blank",rel:"noopener",text:"Join on Patreon ↗"}):null,
+      S.email?null:h("button",{type:"button",class:"btn",text:"I'm a member, sign in",onclick:()=>openAuth("in")})),
+    h("p",{class:"note",text:S.email?`You're signed in as ${S.email}. If you've just joined, your access may take a little while to be added. Make sure Patreon uses this same email.`:"Sign in with the same email you use on Patreon."}))}
+
 function lockBox(c,b){const t=tierById(c.tier_id);const join=t?.patreon_url||S.config.join_url;
   return h("div",{class:"lockbox"},h("div",{class:"lockic"},lockIcon()),
     h("h3",{text:"This chapter is for supporters"}),
@@ -415,8 +459,9 @@ async function renderReader(id,seq){
     h("article",{class:"chapter"},
       h("h2",{class:"rtitle"},h("span",{class:"rnum",text:(c.volume?"Volume "+c.volume+(c.volume_title?": "+c.volume_title:"")+" · ":"")+"Chapter "+num(c.number)}),c.title?h("span",{text:c.title}):null),
       c.published?null:h("p",{class:"banner",text:"Draft: only you can see this chapter."}),
-      c.locked?lockBox(c,b):h("div",{class:"chapter-body"},...renderBody(c.content)),
+      c.locked?(tierById(c.tier_id)?paywall(tierById(c.tier_id),b,"locked",c.number):lockBox(c,b)):h("div",{class:"chapter-body"},...renderBody(c.content)),
       !c.locked&&c.note?h("aside",{class:"tlnote"},h("p",{class:"eyebrow",text:"Translator's note"}),h("div",{},...renderBody(c.note))):null),
+    !c.locked&&next&&next.tier_id&&tierById(next.tier_id)&&!canReadTier(next.tier_id)?paywall(tierById(next.tier_id),b,"end",next.number):null,
     navBar(),cbox);
   drawSettings();
   if(S.commReady&&!c.locked)el.querySelector(".rtools").prepend(h("button",{type:"button",class:"btn sm",id:"jumpComments",text:"Comments",onclick:()=>cbox.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth"})}));
@@ -767,21 +812,52 @@ $("aLogout").addEventListener("click",()=>logout());
 /* ---------- Tiers & memberships (dashboard) ---------- */
 function msStatus(m){return m.status==="cancelled"?"cancelled":m.expires_at&&Date.parse(m.expires_at)<=Date.now()?"expired":"active"}
 let editTier=null;
+const TC={photo:null,stick:null};
+const TC_IDS={title:"tcTitle",sub:"tcSub",story:"tcStory",fields:"tcFields",label:"tcLabel",sign:"tcSign",stamp:"tcStamp",tri:"tcTri",stick:"tcStick"};
+function tcFile(kind,file){const old=TC[kind];if(old?.url&&old.file)URL.revokeObjectURL(old.url);TC[kind]=file?{file,url:URL.createObjectURL(file)}:{removed:true}}
+function tierDraft(){const card={};for(const[k,id]of Object.entries(TC_IDS))card[k]=$(id).value.trim();
+  const t=editTier?tierById(editTier):null;const oc=t?.card||{};
+  card.photo_url=TC.photo?(TC.photo.url||""):(oc.photo_url||"");card.sticker_url=TC.stick?(TC.stick.url||""):(oc.sticker_url||"");
+  return{id:editTier||"new-tier",name:$("tName").value.trim()||"Your tier",price:parseFloat($("tPrice").value)||0,book_id:$("tBook").value||null,description:$("tDesc").value.trim(),card}}
+function drawTierPreview(){const t=tierDraft();const b=t.book_id?S.books.find(x=>x.id===t.book_id):null;
+  $("tPrev").replaceChildren(memberCard(cardData(t,{book:b})));
+  $("tcTitle").placeholder=t.name;$("tcStory").placeholder=t.description.split("\n")[0]||CARD_STORY;
+  $("tcFields").placeholder=autoFields(t,b,null).map(f=>f.l+": "+f.v).join("\n");$("tcSign").placeholder=siteName().split(/\s+/).slice(0,2).join(" ");$("tcLabel").placeholder="e.g. Lya's profile";
+  $("tPhotoRm").hidden=!t.card.photo_url;$("tStickRm").hidden=!t.card.sticker_url}
 function openTier(id){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}const t=id?tierById(id):null;editTier=id||null;
   $("tierTitle").textContent=t?"Edit tier":"New tier";$("tName").value=t?.name||"";$("tPrice").value=t?(+t.price):"";$("tUrl").value=t?.patreon_url||"";$("tDesc").value=t?.description||"";$("tErr").textContent="";
   const f=lstate("tiers").filters.book;
   $("tBook").replaceChildren(h("option",{value:"",text:"All novels"}),...[...S.books].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(b=>h("option",{value:b.id,text:b.title,selected:(t?t.book_id===b.id:f===b.id)?true:null})));
-  $("tierDlg").showModal();$("tName").focus()}
+  const c=t?.card||{};for(const[k,fid]of Object.entries(TC_IDS))$(fid).value=c[k]||"";
+  for(const k of ["photo","stick"]){if(TC[k]?.file)URL.revokeObjectURL(TC[k].url);TC[k]=null}$("tPhotoIn").value="";$("tStickIn").value="";
+  drawTierPreview();$("tierDlg").showModal();$("tName").focus()}
+$("tierForm").addEventListener("input",()=>drawTierPreview());
+$("tierForm").addEventListener("change",e=>{if(e.target.id==="tBook")drawTierPreview()});
+for(const[inp,kind]of [["tPhotoIn","photo"],["tStickIn","stick"]])$(inp).addEventListener("change",e=>{const f=e.target.files[0];if(!f)return;if(!/^image\//.test(f.type)){$("tErr").textContent="That file isn't a picture.";return}if(f.size>15*1024*1024){$("tErr").textContent="That picture is too big. Try one under 15 MB.";return}$("tErr").textContent="";tcFile(kind,f);drawTierPreview()});
+$("tPhotoRm").addEventListener("click",()=>{tcFile("photo",null);$("tPhotoIn").value="";drawTierPreview()});
+$("tStickRm").addEventListener("click",()=>{tcFile("stick",null);$("tStickIn").value="";drawTierPreview()});
+async function tierCardRow(){const t=editTier?tierById(editTier):null;const oc=t?.card||{};const card={};
+  for(const[k,id]of Object.entries(TC_IDS)){const v=$(id).value.trim();if(v)card[k]=v}
+  const old=[];
+  for(const[kind,u,pth,max,type]of [["photo","photo_url","photo_path",900,null],["stick","sticker_url","sticker_path",500,"image/png"]]){const st=TC[kind];
+    if(st?.file){const up=await uploadImage(st.file,max,type);card[u]=up.url;card[pth]=up.path;if(oc[pth])old.push(oc[pth])}
+    else if(st?.removed){if(oc[pth])old.push(oc[pth])}
+    else if(oc[u]){card[u]=oc[u];if(oc[pth])card[pth]=oc[pth]}}
+  return{card,old}}
 $("tierForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("tErr");err.textContent="";
   const name=$("tName").value.trim(),price=parseFloat($("tPrice").value),url=$("tUrl").value.trim();
   if(!name){err.textContent="Give the tier a name.";$("tName").focus();return}
   if(!Number.isFinite(price)||price<0){err.textContent="Add a price, like 3 or 9.99.";$("tPrice").focus();return}
   if(url&&!isUrl(url)){err.textContent="The Patreon link needs to start with https://";$("tUrl").focus();return}
   const row={name,price,book_id:$("tBook").value||null,patreon_url:url,description:$("tDesc").value.trim()};
-  $("tSave").disabled=true;
+  $("tSave").disabled=true;let extra;
+  try{extra=await tierCardRow()}catch(x){$("tSave").disabled=false;err.textContent=x?.message==="too_big"?"That picture is too big. Try a smaller one.":"Couldn't upload the picture. Check you're still signed in, then try again.";return}
+  row.card=extra.card;
   const r=editTier?await sb.from("tiers").update(row).eq("id",editTier):await sb.from("tiers").insert(row);
   $("tSave").disabled=false;
-  if(r.error){err.textContent="Couldn't save the tier. Check you're still signed in, then try again.";return}
+  if(r.error){err.textContent=/card|column|schema/i.test(r.error.message||"")?"Run update-tier-cards.sql in Supabase first, then save again.":"Couldn't save the tier. Check you're still signed in, then try again.";return}
+  for(const pth of extra.old)removeCoverFile(pth);
+  for(const k of ["photo","stick"]){if(TC[k]?.file)URL.revokeObjectURL(TC[k].url);TC[k]=null}
   $("tierDlg").close();toast(editTier?"Tier updated":"Tier created");S.tocP={};await refresh()});
 let editMs=null;
 function tierOptions(sel,selected){const groups=new Map();for(const t of [...S.tiers].sort((a,b)=>+a.price-+b.price)){const k=t.book_id?bookTitle(t.book_id):"All novels";if(!groups.has(k))groups.set(k,[]);groups.get(k).push(t)}
@@ -845,10 +921,10 @@ function setCover(k){S.cover=k;for(const b of $("bSwatches").children)b.setAttri
 $("bSwatches").append(...Object.entries(COVERS).map(([k,c])=>h("button",{type:"button","data-k":k,"aria-label":k+" cover","aria-pressed":"false",style:`background:${c[0]}`,onclick:()=>setCover(k)})));
 function updUrlHint(){$("bUrlHint").textContent=$("bAccess").value==="members"?"Kept private: only you see this link. Readers get your membership link instead.":"Optional. Only used when the book has no chapters on this site."}
 $("bAccess").addEventListener("change",updUrlHint);
-async function shrink(file,max=900){
+async function shrink(file,max=900,type="image/jpeg"){
   try{const img=await createImageBitmap(file);const sc=Math.min(1,max/Math.max(img.width,img.height));
     const c=document.createElement("canvas");c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
-    c.getContext("2d").drawImage(img,0,0,c.width,c.height);const blob=await new Promise(r=>c.toBlob(r,"image/jpeg",0.86));if(blob)return blob}catch(e){console.warn(e)}
+    c.getContext("2d").drawImage(img,0,0,c.width,c.height);const blob=await new Promise(r=>c.toBlob(r,type,0.86));if(blob)return blob}catch(e){console.warn(e)}
   if(file.size<=3*1024*1024)return file;throw new Error("too_big")}
 function coverPreview(){const old=S.editBook?S.books.find(x=>x.id===S.editBook):null;
   if(S.coverPreviewUrl){URL.revokeObjectURL(S.coverPreviewUrl);S.coverPreviewUrl=null}
@@ -909,7 +985,7 @@ $("bBanRemove").addEventListener("click",()=>{S.banFile=null;S.banRemove=true;ba
 $("bBanDrop").addEventListener("dragover",e=>{e.preventDefault();$("bBanDrop").classList.add("over")});
 $("bBanDrop").addEventListener("dragleave",()=>$("bBanDrop").classList.remove("over"));
 $("bBanDrop").addEventListener("drop",e=>{e.preventDefault();$("bBanDrop").classList.remove("over");pickBanner(e.dataTransfer.files[0])});
-async function uploadImage(file,max){const blob=await shrink(file,max);const path=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+".jpg";
+async function uploadImage(file,max,type){const png=type==="image/png";const blob=await shrink(file,max,png?"image/png":"image/jpeg");const path=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+(png?".png":".jpg");
   const up=await sb.storage.from("covers").upload(path,blob,{contentType:blob.type||"image/jpeg",cacheControl:"31536000",upsert:false});if(up.error)throw up.error;
   return{path,url:sb.storage.from("covers").getPublicUrl(path).data.publicUrl}}
 /* Versions */

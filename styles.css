@@ -923,3 +923,77 @@ button.mi{border:0;background:none;width:100%;text-align:left;cursor:pointer;fon
 .abmemacts{display:flex;flex-direction:column;gap:6px}
 .abcarded{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--bg);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 .abcarded>.form{width:100%}
+
+/* ---------- v14: tier members card (ID card style) ---------- */
+:root{--tc-noise:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45  0 0 0 0 .38  0 0 0 0 .22  0 0 0 .6 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.28'/%3E%3C/svg%3E");--tc-rough:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='60'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.7' numOctaves='2' seed='4'/%3E%3CfeColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.4 1.75'/%3E%3C/filter%3E%3Crect width='160' height='60' filter='url(%23r)'/%3E%3C/svg%3E")}
+.tcwrap{container-type:inline-size;width:100%;max-width:640px;margin:0 auto}
+.tcard{position:relative;font-size:clamp(10.5px,2.35cqw,15px);color:#25211C;text-align:left;
+  background:var(--tc-noise),radial-gradient(ellipse at 18% 8%,rgba(255,255,255,.55),transparent 55%),radial-gradient(ellipse at 90% 100%,rgba(160,120,60,.16),transparent 50%),linear-gradient(165deg,#F5EDD4,#EADFBF);
+  border-radius:1.5em;padding:2.4em 2.1em 1.8em;display:grid;grid-template-columns:34% minmax(0,1fr);grid-template-areas:"left head" "left main";column-gap:1.9em;row-gap:.7em;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.55),0 0 0 1px rgba(110,90,50,.28),0 .25em .5em rgba(30,20,10,.12),0 1.6em 3em rgba(30,20,10,.3);transform:rotate(-.8deg);margin:1.2em .4em 1.4em}
+.tcleft{grid-area:left;display:flex;flex-direction:column;gap:2.2em;min-width:0}
+.tcphoto{position:relative;margin-top:.4em}
+.tcph{aspect-ratio:4/5;overflow:hidden;background:#3A3129;transform:rotate(-1.5deg);box-shadow:0 0 0 .25em #FBF7EC,0 .5em 1em rgba(30,20,10,.35)}
+.tcph img{width:100%;height:100%;object-fit:cover;display:block}
+.tcph .covbox,.tcph .cover{height:100%;border-radius:0;box-shadow:none}
+.tcph .cover{aspect-ratio:auto}
+.tcmono{display:grid;place-items:center;height:100%;font-family:"Playfair Display",Georgia,serif;font-style:italic;font-weight:800;font-size:5em;color:#EADFBF}
+.tcclip{position:absolute;top:-2.3em;left:1.1em;width:2.2em;height:6.2em;transform:rotate(9deg);z-index:3;filter:drop-shadow(.08em .15em .1em rgba(0,0,0,.25))}
+.tcstar{position:absolute;z-index:3;filter:drop-shadow(0 .12em .1em rgba(0,0,0,.25))}
+.tcstar svg,.tcclip svg,.tctri svg{display:block;width:100%;height:100%}
+.tcstar.s1{top:-1em;right:1.2em;width:2.1em;height:2.1em;color:#F5C518;transform:rotate(-8deg)}
+.tcstar.s2{top:.3em;right:-1.2em;width:2.9em;height:2.9em;color:#86B5E6;transform:rotate(12deg)}
+.tclabel{position:absolute;right:-1.4em;bottom:-.9em;z-index:3;max-width:110%;background:#F7D53B;color:#16130F;font-family:"Courier Prime","Courier New",monospace;font-weight:700;font-size:.82em;letter-spacing:.04em;text-transform:uppercase;padding:.3em .7em .25em;transform:rotate(-3deg);box-shadow:.12em .14em 0 #16130F;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tchd{grid-area:head;display:flex;flex-direction:column;line-height:.92;min-width:0;padding-top:.2em}
+.has-stick .tchd{padding-right:8.4em}
+.tcname{font-family:"Playfair Display",Georgia,serif;font-style:italic;font-weight:800;font-size:3.2em;letter-spacing:-.01em;color:#16130F;overflow-wrap:anywhere}
+.tcsub{font-family:"Playfair Display",Georgia,serif;font-weight:400;font-size:1.9em;margin-top:.08em}
+.tcmain{grid-area:main;min-width:0;position:relative}
+.has-tri .tcmain{padding-right:4.6em}
+.tcstory{margin:.1em 0 1em;font-family:"Courier Prime","Courier New",monospace;font-size:.95em;line-height:1.45;max-width:34em}
+.tcform{margin:0;display:grid;grid-template-columns:1fr 1fr;border-top:.09em solid #25211C;border-left:.09em solid #25211C;max-width:26em}
+.tcf{border-right:.09em solid #25211C;border-bottom:.09em solid #25211C;padding:.3em .55em .4em;min-width:0}
+.tcform.odd .tcf:last-child{grid-column:1/-1}
+.tcf dt{font-family:"Courier Prime","Courier New",monospace;font-size:.82em;line-height:1.2}
+.tcf dd{margin:0;font-family:"Courier Prime","Courier New",monospace;font-size:1em;line-height:1.25;overflow-wrap:anywhere}
+.tcsign{white-space:nowrap;margin:.1em 0 0;text-align:right;padding-right:2.4em;font-family:"Mrs Saint Delafield","Brush Script MT",cursive;font-size:2.7em;line-height:1.1;transform:rotate(-5deg);color:#16130F}
+.tcstick{position:absolute;top:1.3em;right:1.6em;z-index:2;display:flex;flex-direction:column;align-items:stretch;border:.18em solid #D7262C;border-radius:.45em;overflow:hidden;background:#FFFDF8;transform:rotate(3deg);box-shadow:0 .2em .45em rgba(30,20,10,.25);max-width:9.5em;font-family:"Courier Prime","Courier New",monospace;font-weight:700;text-align:center}
+.tcstick .a{color:#D7262C;font-style:italic;font-size:1.05em;padding:.25em .6em;line-height:1.1}
+.tcstick .b{background:#D7262C;color:#fff;font-size:.78em;letter-spacing:.06em;padding:.25em .6em;text-transform:uppercase}
+.tctri{position:absolute;top:5.6em;right:.9em;width:5.2em;height:4.7em;z-index:2;transform:rotate(6deg);filter:drop-shadow(0 .15em .2em rgba(0,0,0,.25))}
+.tcstamp{position:absolute;right:1.6em;bottom:1.3em;z-index:2;font-family:"Courier Prime","Courier New",monospace;font-weight:700;font-size:1.45em;letter-spacing:.08em;text-transform:uppercase;color:#C8232B;border:.16em solid currentColor;outline:.07em solid currentColor;outline-offset:.14em;padding:.12em .45em .05em;transform:rotate(-9deg);opacity:.86;mix-blend-mode:multiply;
+  -webkit-mask:var(--tc-rough) 0 0/9em auto;mask:var(--tc-rough) 0 0/9em auto}
+.tcbar{display:flex;flex-direction:column;gap:.2em;width:72%;margin-top:auto}
+.tcbar svg{width:100%;height:2.6em}
+.tcbar span{font-family:"Courier Prime","Courier New",monospace;font-size:.75em;letter-spacing:.32em}
+.tcsimg{position:absolute;left:-.8em;bottom:4.6em;width:6.2em;height:auto;z-index:3;transform:rotate(-12deg);filter:drop-shadow(0 .2em .3em rgba(0,0,0,.3))}
+@container (max-width:470px){
+  .tcard{grid-template-columns:42% minmax(0,1fr);grid-template-areas:"left head" "main main";padding:2em 1.4em 1.4em;column-gap:1.2em;font-size:11px}
+  .tcleft{gap:1.4em}
+  .tchd{align-self:center}
+  .has-stick .tchd{padding-right:0;padding-top:5.6em}
+  .tcname{font-size:2.6em}.tcsub{font-size:1.5em}
+  .tcstick{top:1.1em;right:1.1em;font-size:.9em}
+  .tctri{top:auto;bottom:6.4em;right:.6em;width:4.4em;height:4em}
+  .tcmain{padding-top:.6em}
+  .tcsign{padding-right:5em}
+}
+/* paywall around the card */
+.paywall{margin:44px 0 10px;padding:26px 0 6px;border-top:1px solid var(--line);display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px}
+.paywall.locked{border-top:0;margin-top:0;padding-top:0}
+.pwkick{margin:0;font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.pwhead{margin:0 0 4px;font-family:var(--f-display);font-weight:400;font-size:clamp(22px,3.4vw,30px);line-height:1.15;max-width:24ch}
+.pwprice{margin:4px 0 0;color:var(--muted)}
+.pwprice b{color:var(--ink)}
+.pwacts{justify-content:center;margin-top:6px}
+.paywall .note{max-width:52ch;margin:4px 0 0}
+/* tier editor */
+dialog.tierdlg{width:min(1180px,calc(100vw - 32px))}
+.tcsec{border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:12px}
+.tchead h3{font-family:var(--f-display);font-weight:400;font-size:22px;margin:0}
+.tchead p{margin:4px 0 0}
+.tcgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:22px;align-items:start}
+.tcprev{position:sticky;top:0;background:var(--sunk);border-radius:12px;padding:12px 12px 4px}
+.tcprev .eyebrow{margin:0 0 4px}
+.tcup{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+@media (max-width:900px){.tcgrid{grid-template-columns:1fr}.tcprev{position:static;order:-1}}
