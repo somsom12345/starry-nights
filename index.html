@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=8">
+<link rel="stylesheet" href="styles.css?v=10">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -162,34 +162,84 @@
   </form>
 </dialog>
 
-<dialog id="bookDlg" aria-labelledby="bookDlgTitle">
-  <form class="dlg" id="bookForm" novalidate>
-    <div class="dlg-head"><h2 id="bookDlgTitle">Add book</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
-    <div class="form">
-      <div class="field full"><label for="bTitle">Title</label><input id="bTitle" required maxlength="140"></div>
-      <div class="field"><label for="bAuthor">Author or translator</label><input id="bAuthor" maxlength="80"></div>
-      <div class="field"><label for="bChapters">Chapters</label><input id="bChapters" type="number" min="0" step="1" inputmode="numeric"><span class="hint">Only for books read elsewhere. Chapters you add on this site are counted for you.</span></div>
-      <div class="field full"><label for="bGenres">Genres</label><input id="bGenres" placeholder="Romance, Fantasy, Slow burn"><div class="suggest" id="bSuggest"></div></div>
-      <div class="field full"><label for="bSyn">Synopsis</label><textarea id="bSyn" maxlength="3000"></textarea></div>
-      <div class="field"><label for="bStatus">Status</label><select id="bStatus"><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select></div>
-      <div class="field"><label for="bAccess">Who can read</label><select id="bAccess"><option value="free">Everyone (free)</option><option value="members">Paid members only</option></select></div>
-      <div class="field full"><label for="bUrl">Reading link</label><input id="bUrl" placeholder="https://"><span class="hint" id="bUrlHint">Where the "Start reading" button goes.</span></div>
-      <div class="field full"><span class="lbl">Cover image</span>
-        <div class="coverpick"><div class="covprev" id="bCovPrev"></div>
+<div id="edStash" hidden>
+<div class="edpage" id="edPage">
+  <form id="bookForm" class="edform" novalidate>
+    <div class="edbar">
+      <div class="edhead">
+        <div class="crumbs" id="edCrumbs"></div>
+        <h1 id="bookDlgTitle">New novel</h1>
+        <p class="edmeta" id="edMeta"></p>
+      </div>
+      <div class="edacts">
+        <span class="dirty" id="edDirty" hidden>Unsaved changes</span>
+        <button type="button" class="btn sm" id="edVersions">Versions <span class="vcount" id="edVerN"></span></button>
+        <a class="btn sm" id="edView" href="#" target="_blank" rel="noopener">View on site ↗</a>
+        <button class="btn primary" type="submit" id="bSave">Save changes</button>
+        <div class="dd" id="ddEdMore"><button type="button" class="iconbtn" id="edMore" aria-haspopup="true" aria-expanded="false" aria-label="More actions">⋮</button><div class="ddpanel menu" id="edMenu" hidden></div></div>
+      </div>
+      <p class="err edtop" id="bErr" role="alert"></p>
+    </div>
+    <div class="edmain">
+      <div class="field"><label for="bTitle">Title <span class="req" aria-hidden="true">*</span></label><input id="bTitle" required maxlength="140"></div>
+      <div class="field"><label for="bOrig">Original title</label><input id="bOrig" maxlength="200" placeholder="快穿女配：反派BOSS有毒" lang="und"><span class="hint">The title in the original language. Readers see it under the English title.</span></div>
+      <div class="field"><label for="bSyn">Synopsis</label><textarea id="bSyn" maxlength="5000"></textarea></div>
+      <div class="edmedia">
+      <div class="field"><span class="lbl">Cover</span>
+        <div class="coverpick" id="bDrop"><div class="covprev" id="bCovPrev"></div>
           <div class="coverpick-actions">
             <label class="btn sm" for="bCoverFile">Upload cover image</label>
             <input id="bCoverFile" type="file" accept="image/*" hidden>
             <button type="button" class="btn sm danger" id="bCoverRemove" hidden>Remove image</button>
-            <span class="hint">JPG, PNG or WebP. Portrait (2:3) looks best. It's resized automatically.</span>
+            <span class="hint">Or drag and drop an image here. Portrait (2:3) looks best.</span>
           </div>
         </div>
       </div>
-      <div class="field full" id="bSwatchField"><span class="lbl">Cover colour (used when there's no image)</span><div class="swatches" id="bSwatches"></div></div>
-      <label class="check full"><input type="checkbox" id="bFeatured"> Feature on the front of the library</label>
+      <div class="field"><span class="lbl">Banner</span>
+        <div class="bannerpick" id="bBanDrop"><div class="banprev" id="bBanPrev"></div>
+          <div class="coverpick-actions">
+            <label class="btn sm" for="bBanFile">Upload banner</label>
+            <input id="bBanFile" type="file" accept="image/*" hidden>
+            <button type="button" class="btn sm danger" id="bBanRemove" hidden>Remove banner</button>
+            <span class="hint">Or drag and drop. A wide image (about 3:1) shown across the top of the book page.</span>
+          </div>
+        </div>
+      </div>
+      </div>
+      <div class="field" id="bSwatchField"><span class="lbl">Cover colour (used when there's no image)</span><div class="swatches" id="bSwatches"></div></div>
     </div>
-    <div class="actions"><button class="btn primary" type="submit" id="bSave">Save book</button><button class="btn" type="button" data-close>Cancel</button><span class="err" id="bErr"></span></div>
+    <aside class="edside">
+      <div class="field"><label for="bAuthor">Author</label><input id="bAuthor" maxlength="80" list="bAuthList" autocomplete="off"><datalist id="bAuthList"></datalist></div>
+      <div class="field"><span class="lbl" id="staffLbl">Staff</span><div class="staff" id="bStaff" role="group" aria-labelledby="staffLbl"></div><button type="button" class="btn sm addrow" id="bStaffAdd">+ Add person</button></div>
+      <fieldset class="field goal"><legend class="lbl">Goal</legend>
+        <input id="gTitle" maxlength="80" placeholder="e.g. Bonus chapter" aria-label="Goal name">
+        <div class="goalnums"><label>Raised<input id="gCur" type="number" min="0" step="any" inputmode="decimal"></label><label>Target<input id="gTarget" type="number" min="0" step="any" inputmode="decimal"></label><label>Unit<input id="gUnit" maxlength="8" placeholder="$"></label></div>
+        <span class="hint">Shows a progress bar on the book page. Leave Target empty to hide it.</span>
+      </fieldset>
+      <div class="field"><label for="bStatus">Publication <span class="req" aria-hidden="true">*</span></label><select id="bStatus"><option value="ongoing">Ongoing</option><option value="completed">Completed</option><option value="hiatus">On hiatus</option></select></div>
+      <div class="field"><label for="bTagIn">Genres</label>
+        <div class="tagbox" id="bTagBox"><input id="bTagIn" list="bTagList" placeholder="Add a genre" autocomplete="off"></div>
+        <datalist id="bTagList"></datalist><input type="hidden" id="bGenres">
+        <div class="suggest" id="bSuggest"></div>
+      </div>
+      <div class="field"><label for="bAccess">Who can read</label><select id="bAccess"><option value="free">Everyone (free)</option><option value="members">Paid members only</option></select></div>
+      <div class="field"><label for="bExt">Novel Updates link</label><input id="bExt" placeholder="https://www.novelupdates.com/series/…" inputmode="url"><span class="hint">Shown on the book page as an outside link.</span></div>
+      <div class="field"><label for="bUrl">Reading link</label><input id="bUrl" placeholder="https://" inputmode="url"><span class="hint" id="bUrlHint">Where the "Start reading" button goes.</span></div>
+      <div class="field"><label for="bChapters">Chapter count</label><input id="bChapters" type="number" min="0" step="1" inputmode="numeric"><span class="hint">Only for books read elsewhere. Chapters on this site are counted for you.</span></div>
+      <label class="check"><input type="checkbox" id="bFeatured"> Featured on the home page</label>
+      <a class="btn edlist" id="edListCh" href="#admin/chapters">List chapters</a>
+      <div class="edgroup"><h3>Discord</h3>
+        <div class="field"><label for="bDisc">Regular</label><input id="bDisc" inputmode="url" placeholder="https://discord.gg/…"><span class="hint">Invite or channel link for all readers.</span></div>
+        <div class="field"><label for="bDiscSup">Supporter</label><input id="bDiscSup" inputmode="url" placeholder="https://discord.com/channels/…"><span class="hint">Channel for paying supporters.</span></div>
+      </div>
+      <div class="edgroup"><h3>PayPal</h3>
+        <div class="field"><label for="bPay">PayPal link or product ID</label><input id="bPay" maxlength="300" placeholder="https://paypal.me/… or PROD-…"><span class="hint">A link adds a "Support on PayPal" button to the book page. A product ID (PROD-…) is saved but not shown to readers.</span></div>
+      </div>
+    </aside>
   </form>
-</dialog>
+  <section class="edch" id="edChapters" aria-label="Chapters"></section>
+</div>
+</div>
 
 <dialog id="memberDlg" aria-labelledby="memberDlgTitle">
   <form class="dlg" id="memberForm" novalidate>
@@ -207,6 +257,14 @@
   </form>
 </dialog>
 
+<dialog id="verDlg" aria-labelledby="verTitle">
+  <div class="dlg">
+    <div class="dlg-head"><h2 id="verTitle">Versions</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
+    <p class="note" style="margin:-6px 0 0">Every save keeps a copy (the last 30). Restoring fills the form with that version; click Save changes to keep it. Images stay as they are now.</p>
+    <ol class="vlist" id="verList"></ol>
+  </div>
+</dialog>
+
 <dialog id="promptDlg" class="narrow" aria-labelledby="pTitle">
   <form class="dlg" id="promptForm" novalidate>
     <div class="dlg-head"><h2 id="pTitle">Rename</h2><button type="button" class="x" data-close aria-label="Close">×</button></div>
@@ -219,6 +277,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>
