@@ -87,6 +87,9 @@ function filtered(){const q=S.q.trim().toLowerCase();const list=S.books.filter(b
   return true});
   const by={updated:(a,b)=>updTime(b)-updTime(a)||time(b)-time(a),new:(a,b)=>time(b)-time(a),az:(a,b)=>(a.title||"").localeCompare(b.title||""),chapters:(a,b)=>chCount(b)-chCount(a)}[S.sort];
   return list.sort(by)}
+function savedGenres(){return Array.isArray(S.config.genres)?S.config.genres:[]}
+function allGenres(){const m=new Map(genreCounts());for(const g of savedGenres()){const k=g.toLowerCase();if(!m.has(k))m.set(k,{label:g,n:0})}return[...m.entries()]}
+async function saveGenreList(list){const r=await sb.from("site_config").update({genres:list}).eq("id",1);if(r.error)return r;S.config.genres=list;return r}
 function genreCounts(){const m=new Map();for(const b of S.books)for(const g of b.genres||[]){const k=g.toLowerCase();const e=m.get(k)||{label:g,n:0};e.n++;m.set(k,e)}return[...m.entries()].sort((a,b)=>b[1].n-a[1].n||a[1].label.localeCompare(b[1].label))}
 function card(b,rank){const n=chCount(b);const cv=cover(b);
   if(rank)cv.querySelector(".cover").append(h("span",{class:"rankb",text:"#"+rank}));
@@ -407,14 +410,15 @@ function adminCfg(col){
       {label:"Delete",danger:true,run:ids=>sb.from("chapters").delete().in("id",ids),done:n=>n+" deleted"}],
     after(){S.tocP={}},
     empty:"No chapters yet. Click Create new to add one."};
-  if(col==="genres")return{col,title:"Genres",search:"Search genres",defSort:{key:"novels",dir:"desc"},filters:[],
+  if(col==="genres")return{col,title:"Genres",create:addGenre,createLabel:"Add genre",search:"Search genres",defSort:{key:"novels",dir:"desc"},filters:[],
     cols:[{key:"name",label:"Name",cell:g=>h("button",{type:"button",class:"alink",text:g.label,onclick:()=>renameGenre(g.id,g.label)})},
       {key:"novels",label:"Novels",cell:g=>h("a",{class:"alink num",href:"#admin/novels",onclick:()=>{const st=lstate("novels",{sort:{key:"updated",dir:"desc"}});st.filters={genre:g.id};st.page=1}},String(g.n)," →")}],
-    async fetch(st){const q=st.q.trim().toLowerCase();const rows=genreCounts().map(([k,v])=>({id:k,label:v.label,n:v.n})).filter(g=>!q||g.id.includes(q));
+    async fetch(st){const q=st.q.trim().toLowerCase();const rows=allGenres().map(([k,v])=>({id:k,label:v.label,n:v.n})).filter(g=>!q||g.id.includes(q));
       return localPage(rows,st,{novels:g=>g.n,name:g=>g.id})},
-    bulk:[{label:"Delete",danger:true,done:n=>n+" removed from all novels",run:async ids=>{const set=new Set(ids);
+    bulk:[{label:"Delete",danger:true,done:n=>n+" deleted",run:async ids=>{const set=new Set(ids);
+      const keep=savedGenres().filter(g=>!set.has(g.toLowerCase()));if(keep.length!==savedGenres().length){const r=await saveGenreList(keep);if(r.error)return r}
       for(const b of S.books){const gs=(b.genres||[]).filter(g=>!set.has(g.toLowerCase()));if(gs.length!==(b.genres||[]).length){const r=await sb.from("books").update({genres:gs}).eq("id",b.id);if(r.error)return r}}return{}}}],
-    empty:"No genres yet. They appear here when you add them to a novel."};
+    empty:"No genres yet. Click Add genre to create your first one."};
   if(col==="members")return{col,title:"Paid members",create:()=>openMemberForm(null),search:"Search by name or contact",defSort:{key:"status",dir:"asc"},
     filters:[{key:"status",label:"Any status",opts:Object.entries(MSTATUS)},{key:"tier",label:"Any tier",opts:tiers().map(t=>[t,t])}],
     cols:[{key:"name",label:"Name",cell:m=>h("div",{class:"tmeta"},h("button",{type:"button",class:"alink",text:m.name,onclick:()=>openMemberForm(m.id)}),m.contact?h("div",{class:"sub",text:m.contact}):null)},
@@ -447,7 +451,7 @@ function mountList(cfg,st){
   const filters=cfg.filters.map(f=>h("select",{"aria-label":f.label,onchange:e=>{st.filters[f.key]=e.target.value;st.page=1;st.sel.clear();refreshList()}},
     h("option",{value:"",text:f.label}),...f.opts.map(([v,t])=>h("option",{value:v,text:t,selected:st.filters[f.key]===v?true:null}))));
   $("amain").replaceChildren(...[crumbs(cfg.title),
-    h("div",{class:"ahead"},h("h1",{text:cfg.title}),cfg.create?h("button",{type:"button",class:"btn sm",text:"Create new",onclick:cfg.create}):null,E.count),
+    h("div",{class:"ahead"},h("h1",{text:cfg.title}),cfg.create?h("button",{type:"button",class:"btn sm",text:cfg.createLabel||"Create new",onclick:cfg.create}):null,E.count),
     cfg.notice?h("div",{class:"banner",text:cfg.notice}):null,
     h("div",{class:"atools"},sbox,filters.length?h("div",{class:"afilters"},...filters):null),
     E.bulk,h("div",{class:"tscroll atable"},h("table",{},E.thead,E.tbody)),E.empty,E.pager].filter(Boolean));
@@ -491,7 +495,13 @@ $("promptForm").addEventListener("submit",async e=>{e.preventDefault();if(!promp
 function renameGenre(key,label){openPrompt({title:"Rename genre",label:"Genre name",value:label,async onSave(v){const nv=tidyGenre(v);if(!nv)return"Add a name for the genre.";
   for(const b of S.books.filter(b=>(b.genres||[]).some(g=>g.toLowerCase()===key))){const gs=[];for(const g of b.genres){const x=g.toLowerCase()===key?nv:g;if(!gs.some(y=>y.toLowerCase()===x.toLowerCase()))gs.push(x)}
     const r=await sb.from("books").update({genres:gs}).eq("id",b.id);if(r.error)return"Couldn't rename it. Check you're still logged in, then try again."}
+  if(savedGenres().some(g=>g.toLowerCase()===key)){const list=[];for(const g of savedGenres()){const x=g.toLowerCase()===key?nv:g;if(!list.some(y=>y.toLowerCase()===x.toLowerCase()))list.push(x)}await saveGenreList(list)}
   toast("Genre renamed");await refresh()}})}
+function addGenre(){openPrompt({title:"Add genre",label:"Genre name",value:"",async onSave(v){const nv=tidyGenre(v);if(!nv)return"Type a name for the genre.";
+  if(allGenres().some(([k])=>k===nv.toLowerCase()))return"“"+nv+"” already exists.";
+  const r=await saveGenreList([...savedGenres(),nv]);
+  if(r.error)return/genres|column|schema/i.test(r.error.message||"")?"Run update-genres.sql in Supabase first, then try again.":"Couldn't add it. Check you're still logged in, then try again.";
+  toast("“"+nv+"” added");await refresh()}})}
 $("aLogout").addEventListener("click",()=>logout());
 
 /* ---------- Book form ---------- */
@@ -520,7 +530,7 @@ function openBookForm(id){const b=id?S.books.find(x=>x.id===id):null;S.editBook=
   $("bGenres").value=(b?.genres||[]).join(", ");$("bSyn").value=b?.synopsis||"";$("bStatus").value=b?.status||"ongoing";$("bAccess").value=b?.access||"free";
   $("bUrl").value=b?(b.access==="members"?(S.links[b.id]||""):(b.read_url||"")):"";$("bFeatured").checked=!!b?.featured;$("bErr").textContent="";
   S.coverFile=null;S.coverRemove=false;setCover(b?.cover||Object.keys(COVERS)[S.books.length%9]);updUrlHint();coverPreview();
-  $("bSuggest").replaceChildren(...genreCounts().slice(0,14).map(([,v])=>h("button",{type:"button",text:"+ "+v.label,onclick:()=>{const cur=parseGenres($("bGenres").value);if(!cur.some(g=>g.toLowerCase()===v.label.toLowerCase()))cur.push(v.label);$("bGenres").value=cur.join(", ")}})));
+  $("bSuggest").replaceChildren(...allGenres().sort((a,b)=>a[1].label.localeCompare(b[1].label)).map(([,v])=>h("button",{type:"button",text:"+ "+v.label,onclick:()=>{const cur=parseGenres($("bGenres").value);if(!cur.some(g=>g.toLowerCase()===v.label.toLowerCase()))cur.push(v.label);$("bGenres").value=cur.join(", ")}})));
   $("bookDlg").showModal();$("bTitle").focus()}
 $("bookForm").addEventListener("submit",async e=>{e.preventDefault();const err=$("bErr");err.textContent="";
   const title=$("bTitle").value.trim(),url=$("bUrl").value.trim(),access=$("bAccess").value;
@@ -633,7 +643,8 @@ $("fStatus").addEventListener("change",e=>{S.status=e.target.value;renderLibrary
 $("fAccess").addEventListener("change",e=>{S.access=e.target.value;renderLibrary()});
 $("fSort").addEventListener("change",e=>{S.sort=e.target.value;renderLibrary()});
 $("clear").addEventListener("click",()=>{S.q="";S.genres.clear();S.status="all";S.access="all";$("hq").value="";$("fStatus").value="all";$("fAccess").value="all";renderLibrary()});
-function applyConfig(){const n=siteName();$("siteName").textContent=n;if(!/^(book|read|admin)$/.test(S.route.name))document.title=n;$("hq").placeholder="Search "+(S.books.length?S.books.length+" titles":"titles")+", authors or genres";$("tagline").textContent=S.config.tagline||DEFAULT_TAG;$("footName").textContent="© "+new Date().getFullYear()+" "+n}
+function setLogo(n){const w=n.trim().split(/\s+/);const caps=w.length>=3?w.pop():"";$("logoScript").textContent=w.join(" ").toLowerCase();$("logoCaps").textContent=caps;$("logoCaps").hidden=!caps;$("brandLink").setAttribute("aria-label",n+", home")}
+function applyConfig(){const n=siteName();$("siteName").textContent=n;setLogo(n);if(!/^(book|read|admin)$/.test(S.route.name))document.title=n;$("hq").placeholder="Search "+(S.books.length?S.books.length+" titles":"titles")+", authors or genres";$("tagline").textContent=S.config.tagline||DEFAULT_TAG;$("footName").textContent="© "+new Date().getFullYear()+" "+n}
 
 S.hotWin=LS.get("hotWin",7);
 route();

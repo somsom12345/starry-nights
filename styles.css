@@ -441,3 +441,18 @@ a.alink{text-decoration:none}
   .anav a{white-space:nowrap;background:var(--sunk)}
   .afoot{margin:0 0 0 auto}
 }
+
+/* ---------- v7: script logo ---------- */
+:root{--logo:#6E1A2C;--f-logo:"Damion","Brush Script MT",cursive}
+:root[data-theme="dark"]{--logo:#F4B8C7}
+:root[data-theme="sepia"]{--logo:#7A2A1E}
+@media (prefers-color-scheme:dark){:root:not([data-theme]){--logo:#F4B8C7}}
+.brand{gap:0}
+.brand .logo{display:inline-flex;flex-direction:column;align-items:center;color:var(--logo);line-height:1;padding-block:2px}
+.brand .lscript{font-family:var(--f-logo);font-size:36px;line-height:.85;letter-spacing:.005em;white-space:nowrap;padding:0 .1em}
+.brand .lcaps{font-family:var(--f-body);font-size:10px;font-weight:500;letter-spacing:.34em;text-transform:uppercase;margin-top:6px;padding-left:.34em;white-space:nowrap}
+.brand .lcaps[hidden]{display:none}
+.brand:hover .logo{opacity:.85}
+@media (max-width:480px){.brand .lscript{font-size:30px}.brand .lcaps{font-size:8.5px}}
+body.reading .brand .lscript{font-size:30px}
+.brand .logo,.brand .lscript,.brand .lcaps{overflow:visible;text-overflow:clip}
