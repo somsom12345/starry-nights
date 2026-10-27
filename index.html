@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Playfair+Display:ital,wght@0,400;1,800&family=Courier+Prime:wght@400;700&family=Mrs+Saint+Delafield&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=14">
+<link rel="stylesheet" href="styles.css?v=15">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -215,6 +215,7 @@
       <div class="field"><label for="tBook">Novel</label><select id="tBook"></select></div>
       <div class="field"><label for="tPrice">Price per month <span class="req" aria-hidden="true">*</span></label><input id="tPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="5"><span class="hint">Higher-priced tiers also unlock chapters of cheaper tiers for the same novel.</span></div>
       <div class="field"><label for="tUrl">Patreon link</label><input id="tUrl" inputmode="url" placeholder="https://www.patreon.com/…"><span class="hint">Where "Join" sends readers. Uses your main Patreon link if empty.</span></div>
+      <div class="field full" id="tPatWrap" hidden><label for="tPat">Patreon tier</label><select id="tPat"></select><span class="hint">Patrons on this Patreon tier unlock this tier by themselves once they connect their Patreon. Higher tiers here still unlock cheaper ones for the same novel.</span></div>
       <div class="field full"><label for="tDesc">Description</label><textarea id="tDesc" maxlength="1500" placeholder="Access to 3 advance chapters…" style="min-height:70px"></textarea><span class="hint">Shown in the tier list on the novel's page.</span></div>
     </div>
     <div class="tcsec">
@@ -395,6 +396,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

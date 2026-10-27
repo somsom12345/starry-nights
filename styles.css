@@ -997,3 +997,16 @@ dialog.tierdlg{width:min(1180px,calc(100vw - 32px))}
 .tcprev .eyebrow{margin:0 0 4px}
 .tcup{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 @media (max-width:900px){.tcgrid{grid-template-columns:1fr}.tcprev{position:static;order:-1}}
+
+/* ---------- v15: Patreon connection ---------- */
+.accpat{margin:4px 6px 8px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+.accpat .note{margin:0}
+.accpatacts{display:flex;gap:6px;flex-wrap:wrap}
+.patpanel{margin-bottom:22px;display:flex;flex-direction:column;gap:12px;padding:18px 20px}
+.patphead h2{font-family:var(--f-display);font-weight:400;font-size:24px;margin:0}
+.patphead p{margin:4px 0 0}
+.pattable{width:100%;border-collapse:collapse;font-size:14px}
+.pattable th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line)}
+.pattable td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+.pattable .num{white-space:nowrap}
+@media (max-width:560px){.pattable th:nth-child(2),.pattable td:nth-child(2){display:none}}

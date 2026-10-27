@@ -53,7 +53,7 @@ async function loadPublic(){
   S.loaded=true;applyConfig();
 }
 async function loadPrivate(){
-  S.mine=[];S.profile=null;
+  S.mine=[];S.profile=null;if(S.uid&&patSql()&&S.pat===undefined)await loadPatreon();
   if(S.uid&&S.commReady){const p=await sb.from("profiles").select("user_id,display_name").eq("user_id",S.uid).maybeSingle();S.profile=p.data||null}
   if(!S.canEdit){S.members=[];S.links={};
     if(S.email&&S.memReady){const r=await sb.from("memberships").select("id,tier_id,status,expires_at");S.mine=r.error?[]:(r.data||[])}
@@ -355,6 +355,57 @@ async function renderBook(id,seq){
   draw();
 }
 
+
+/* ---------- Patreon (automatic unlocks) ---------- */
+function patSql(){return "patreon_tiers" in (S.config||{})}
+function patOn(){return !!(S.config&&S.config.patreon_campaign_id)}
+function patTiers(){return Array.isArray(S.config?.patreon_tiers)?S.config.patreon_tiers:[]}
+const PAT_ERR={sign_in:"Sign in first, then connect Patreon.",not_configured:"Patreon isn't set up on this site yet.",no_function:"Patreon isn't set up on this site yet.",run_sql:"Run update-patreon.sql in Supabase first.",
+  expired:"That took too long. Please try connecting again.",reconnect:"Patreon needs you to connect again.",already_linked:"That Patreon account is already connected to a different account on this site.",
+  creator_not_connected:"The site owner hasn't finished setting up Patreon yet.",not_owner:"Only the site owner can do that.",no_campaign:"That Patreon account doesn't have a creator page.",patreon_down:"Patreon didn't answer. Try again in a minute.",
+  not_connected:"Connect your Patreon first.",server_error:"Something went wrong. Try again in a minute.",access_denied:"Patreon connection was cancelled."};
+const PAT_STATUS={active:"Active patron",no_matching_tier:"Your Patreon tier doesn't unlock anything on this site yet",not_a_patron:"No pledge found on our Patreon",former_patron:"Your pledge has ended",declined_patron:"Your last Patreon payment was declined",reconnect:"Please connect again"};
+function patMsg(e){return PAT_ERR[e]||PAT_ERR.server_error}
+async function patCall(action,extra){if(!sb?.functions)return{ok:false,error:"no_function"};
+  try{const r=await sb.functions.invoke("patreon",{body:{action,...(extra||{})}});if(r.error)return{ok:false,error:"no_function"};return r.data||{ok:false,error:"server_error"}}catch(e){return{ok:false,error:"no_function"}}}
+async function connectPatreon(kind){if(!S.email){openAuth("in");toast("Sign in or create an account first, then connect Patreon.");return}
+  LS.set("patReturn",kind==="creator"?"#admin/settings":(location.hash||"#"));toast("Opening Patreon…");
+  const r=await patCall("start",{kind:kind||"reader"});if(r.ok&&r.url){location.href=r.url;return}toast(patMsg(r.error))}
+async function loadPatreon(){S.pat=null;if(!S.uid||!patSql())return;const r=await sb.rpc("my_patreon");if(!r.error){const d=Array.isArray(r.data)?r.data[0]:r.data;S.pat=d&&d.connected?d:{connected:false}}}
+async function syncPatreon(manual){if(!S.pat?.connected){if(manual)connectPatreon("reader");return}
+  if(manual)toast("Checking your Patreon…");const r=await patCall("sync");LS.set("patSync:"+S.uid,Date.now());
+  if(r.ok){await loadPatreon();await loadPrivate();rerender();if(manual)toast(r.status==="active"?"All set. Your chapters are unlocked.":PAT_STATUS[r.status]||"Checked")}
+  else{if(r.error==="reconnect")await loadPatreon();if(manual||r.error==="reconnect")toast(patMsg(r.error));if(r.error==="reconnect")rerender()}}
+async function unlinkPatreon(){const r=await patCall("unlink");if(!r.ok){toast(patMsg(r.error));return}LS.del?.("patSync:"+S.uid);await loadPatreon();await loadPrivate();rerender();toast("Patreon disconnected")}
+async function finishPatreon(){const q=new URLSearchParams(location.search);const state=q.get("state"),code=q.get("code"),err=q.get("error");
+  if(!state||!(code||err))return false;
+  const back=LS.get("patReturn","#")||"#";history.replaceState(null,"",location.pathname+back);
+  if(err){toast(patMsg(err==="access_denied"?"access_denied":"server_error"));return true}
+  toast("Connecting Patreon…");const r=await patCall("finish",{code,state});
+  if(!r.ok){toast(patMsg(r.error));return true}
+  if(r.kind==="creator"){await refresh();toast(`Patreon connected. Found ${r.tiers} tier${r.tiers===1?"":"s"}. Now match them under Tiers.`)}
+  else{LS.set("patSync:"+S.uid,Date.now());await loadPatreon();await loadPrivate();rerender();toast(r.status==="active"?"Patreon connected. Your chapters are unlocked.":"Patreon connected. "+(PAT_STATUS[r.status]||""))}
+  return true}
+function patBlock(){if(!patOn()||S.canEdit||!S.email)return null;const p=S.pat;
+  if(!p?.connected)return h("div",{class:"accpat"},h("p",{class:"note",text:"Pledged on Patreon? Connect it once and your chapters unlock by themselves."}),h("button",{type:"button",class:"btn primary sm",text:"Connect Patreon",onclick:()=>{closeAcct();connectPatreon("reader")}}));
+  return h("div",{class:"accpat"},h("p",{class:"note"},h("b",{text:"Patreon connected"}),p.status?" · "+(PAT_STATUS[p.status]||p.status):"",p.last_sync?" · checked "+ago(p.last_sync):""),
+    h("div",{class:"accpatacts"},h("button",{type:"button",class:"btn sm",text:p.status==="reconnect"?"Connect again":"Check now",onclick:()=>{closeAcct();p.status==="reconnect"?connectPatreon("reader"):syncPatreon(true)}}),
+      h("button",{type:"button",class:"btn sm",text:"Disconnect",onclick:()=>{closeAcct();unlinkPatreon()}})))}
+function patPanel(){const box=h("section",{class:"apanel patpanel"});
+  const head=h("div",{class:"patphead"},h("h2",{text:"Patreon"}),h("p",{class:"muted",text:"Readers connect their Patreon once, and their paid chapters unlock by themselves. No more CSV imports."}));
+  if(!patSql()){box.append(head,h("p",{class:"banner",text:"Run update-patreon.sql in Supabase (SQL Editor) first, then refresh this page."}));return box}
+  const pts=patTiers();
+  if(!patOn()){box.append(head,h("p",{text:"Step 1 is done when you see your tiers here. Connect the Patreon account that owns your creator page:"}),
+    h("div",{class:"actions"},h("button",{type:"button",class:"btn primary",text:"Connect your Patreon",onclick:()=>connectPatreon("creator")})),
+    h("p",{class:"hint",text:"If this says Patreon isn't set up, the Patreon function or its secrets are missing in Supabase."}));return box}
+  const mapped=t=>S.tiers.filter(x=>String(x.patreon_tier_id||"")===t.id).map(x=>x.name+(x.book_id?" ("+bookTitle(x.book_id)+")":""));
+  box.append(head,h("p",{},h("span",{class:"pill p-active",text:"Connected"})," ",h("span",{class:"muted",text:S.config.patreon_connected_at?"Tier list updated "+ago(S.config.patreon_connected_at):""})),
+    h("table",{class:"pattable"},h("thead",{},h("tr",{},h("th",{text:"Patreon tier"}),h("th",{text:"Price"}),h("th",{text:"Unlocks on this site"}))),
+      h("tbody",{},...pts.map(t=>{const m=mapped(t);return h("tr",{},h("td",{text:t.title}),h("td",{class:"num",text:money((t.amount_cents||0)/100)}),h("td",{class:m.length?"":"muted",text:m.length?m.join(", "):"Nothing yet. Pick it in a tier under Tiers."}))}))),
+    h("div",{class:"actions"},h("a",{class:"btn primary",href:"#admin/tiers",text:"Match tiers"}),
+      h("button",{type:"button",class:"btn",text:"Refresh tier list",onclick:async e=>{e.target.disabled=true;const r=await patCall("tiers");e.target.disabled=false;if(r.ok){await refresh();toast("Tier list updated")}else toast(r.error==="reconnect"?"Patreon needs you to connect again.":patMsg(r.error))}}),
+      h("button",{type:"button",class:"btn",text:"Reconnect",onclick:()=>connectPatreon("creator")})));
+  return box}
 /* ---------- Reader ---------- */
 /* ---------- Members card (one per tier) ---------- */
 const CARD_STORY="Thank you for reading this far. Members get the next chapters early, and every pledge keeps the translations coming.";
@@ -397,8 +448,13 @@ function paywall(t,b,mode,from){const join=t.patreon_url||S.config.join_url;
     memberCard(cardData(t,{book:b,from})),
     h("p",{class:"pwprice"},h("b",{text:money(t.price)}),` a month on Patreon, or any higher tier${t.book_id?" for "+(b.title||"this novel"):""}.`),
     h("div",{class:"actions pwacts"},isUrl(join)?h("a",{class:"btn primary",href:join,target:"_blank",rel:"noopener",text:"Join on Patreon ↗"}):null,
-      S.email?null:h("button",{type:"button",class:"btn",text:"I'm a member, sign in",onclick:()=>openAuth("in")})),
-    h("p",{class:"note",text:S.email?`You're signed in as ${S.email}. If you've just joined, your access may take a little while to be added. Make sure Patreon uses this same email.`:"Sign in with the same email you use on Patreon."}))}
+      !S.email?h("button",{type:"button",class:"btn",text:patOn()?"Already a patron? Sign in":"I'm a member, sign in",onclick:()=>openAuth("in")})
+      :patOn()&&!S.pat?.connected?h("button",{type:"button",class:"btn",text:"Already a patron? Connect Patreon",onclick:()=>connectPatreon("reader")})
+      :patOn()&&S.pat?.connected?h("button",{type:"button",class:"btn",text:S.pat.status==="reconnect"?"Connect Patreon again":"Check my Patreon again",onclick:()=>S.pat.status==="reconnect"?connectPatreon("reader"):syncPatreon(true)}):null),
+    h("p",{class:"note",text:patOn()?(!S.email?"Already pledged? Sign in (or make a free account), then connect your Patreon once. Your chapters unlock by themselves after that."
+        :S.pat?.connected?(S.pat.status==="active"?"Your Patreon is connected, but your tier doesn't include this chapter. A higher tier unlocks it.":(PAT_STATUS[S.pat.status]||"Your Patreon is connected.")+". If you just pledged, tap Check again.")
+        :"Already pledged? Connect your Patreon once and your chapters unlock by themselves.")
+      :S.email?`You're signed in as ${S.email}. If you've just joined, your access may take a little while to be added. Make sure Patreon uses this same email.`:"Sign in with the same email you use on Patreon."}))}
 
 function lockBox(c,b){const t=tierById(c.tier_id);const join=t?.patreon_url||S.config.join_url;
   return h("div",{class:"lockbox"},h("div",{class:"lockic"},lockIcon()),
@@ -656,7 +712,8 @@ function adminCfg(col){
     cols:[{key:"name",label:"Name",cell:t=>h("button",{type:"button",class:"alink",text:t.name,onclick:()=>openTier(t.id)})},
       {key:"novel",label:"Novel",cell:t=>h("span",{text:t.book_id?bookTitle(t.book_id):"All novels"})},
       {key:"description",label:"Description",nosort:true,cell:t=>h("span",{class:"muted clamp1",text:t.description||"—"})},
-      {key:"price",label:"Price",cell:t=>h("span",{class:"num",text:money(t.price)})}],
+      {key:"price",label:"Price",cell:t=>h("span",{class:"num",text:money(t.price)})},
+      ...(patSql()?[{key:"patreon",label:"Patreon tier",nosort:true,cell:t=>{const p=patTiers().find(x=>x.id===String(t.patreon_tier_id||""));return h("span",{class:p?"":"muted",text:p?p.title:"Not linked"})}}]:[])],
     async fetch(st){const q=st.q.trim().toLowerCase();const f=st.filters.book;
       const rows=S.tiers.filter(t=>(!f||(f==="__all"?!t.book_id:t.book_id===f))&&(!q||(t.name||"").toLowerCase().includes(q)));
       return localPage(rows,st,{novel:t=>(t.book_id?bookTitle(t.book_id):"").toLowerCase()+"|"+String(+t.price).padStart(8,"0"),name:t=>(t.name||"").toLowerCase(),price:t=>+t.price})},
@@ -740,7 +797,7 @@ function renderAdmin(col,id){stashForms();
   if(col!=="chapter")S.chOpen=false;
   if(col==="novels"&&id){renderNovelEditor(id);return}
   if(col==="chapter"){renderChapterEditor(id||"new",S.route.book||null,S.seq);return}
-  if(col==="settings"){S.list=null;fillSettings();$("amain").replaceChildren(crumbs("Settings"),h("div",{class:"ahead"},h("h1",{text:"Settings"})),CFG_FORM);return}
+  if(col==="settings"){S.list=null;fillSettings();$("amain").replaceChildren(crumbs("Settings"),h("div",{class:"ahead"},h("h1",{text:"Settings"})),patPanel(),CFG_FORM);return}
   const cfg=adminCfg(col);const st=lstate(col,{sort:cfg.defSort});
   if(col==="chapters"&&id){st.filters.book=id;st.q="";st.page=1}
   if(S.list?.cfg.col!==col||id)st.sel.clear();
@@ -824,7 +881,10 @@ function drawTierPreview(){const t=tierDraft();const b=t.book_id?S.books.find(x=
   $("tcTitle").placeholder=t.name;$("tcStory").placeholder=t.description.split("\n")[0]||CARD_STORY;
   $("tcFields").placeholder=autoFields(t,b,null).map(f=>f.l+": "+f.v).join("\n");$("tcSign").placeholder=siteName().split(/\s+/).slice(0,2).join(" ");$("tcLabel").placeholder="e.g. Lya's profile";
   $("tPhotoRm").hidden=!t.card.photo_url;$("tStickRm").hidden=!t.card.sticker_url}
-function openTier(id){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}const t=id?tierById(id):null;editTier=id||null;
+function fillPatSelect(t){const sel=$("tPat"),wrap=$("tPatWrap");wrap.hidden=!patSql();if(!patSql())return;const pts=patTiers();
+  sel.replaceChildren(h("option",{value:"",text:pts.length?"Not linked to Patreon":"Connect Patreon in Settings first"}),...pts.map(p=>h("option",{value:p.id,text:p.title+" ("+money((p.amount_cents||0)/100)+")",selected:String(t?.patreon_tier_id||"")===p.id?true:null})));
+  if(t?.patreon_tier_id&&!pts.some(p=>p.id===String(t.patreon_tier_id)))sel.append(h("option",{value:t.patreon_tier_id,selected:true,text:"Old Patreon tier (refresh the list in Settings)"}))}
+function openTier(id){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}const t=id?tierById(id):null;editTier=id||null;fillPatSelect(t);
   $("tierTitle").textContent=t?"Edit tier":"New tier";$("tName").value=t?.name||"";$("tPrice").value=t?(+t.price):"";$("tUrl").value=t?.patreon_url||"";$("tDesc").value=t?.description||"";$("tErr").textContent="";
   const f=lstate("tiers").filters.book;
   $("tBook").replaceChildren(h("option",{value:"",text:"All novels"}),...[...S.books].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(b=>h("option",{value:b.id,text:b.title,selected:(t?t.book_id===b.id:f===b.id)?true:null})));
@@ -850,6 +910,7 @@ $("tierForm").addEventListener("submit",async e=>{e.preventDefault();const err=$
   if(!Number.isFinite(price)||price<0){err.textContent="Add a price, like 3 or 9.99.";$("tPrice").focus();return}
   if(url&&!isUrl(url)){err.textContent="The Patreon link needs to start with https://";$("tUrl").focus();return}
   const row={name,price,book_id:$("tBook").value||null,patreon_url:url,description:$("tDesc").value.trim()};
+  if(patSql())row.patreon_tier_id=$("tPat").value||"";
   $("tSave").disabled=true;let extra;
   try{extra=await tierCardRow()}catch(x){$("tSave").disabled=false;err.textContent=x?.message==="too_big"?"That picture is too big. Try a smaller one.":"Couldn't upload the picture. Check you're still signed in, then try again.";return}
   row.card=extra.card;
@@ -1150,8 +1211,9 @@ function acctMenu(){const m=$("acctMenu");const act=activeMine();
     S.commReady?h("div",{class:"accprof"},S.profile?h("span",{},h("span",{class:"note",text:"Display name: "}),h("b",{text:S.profile.display_name})):h("span",{class:"note",text:"No display name yet"}),
       h("button",{type:"button",class:"linkbtn",text:S.profile?"Change":"Choose one",onclick:()=>{closeAcct();S.profile?renameMe():ensureProfile()}})):null,
     S.commReady?h("a",{class:"mi",href:S.uid?"#reader/"+S.uid:"#collections",onclick:closeAcct,text:"My collections"}):null,
+    patBlock(),
     S.canEdit?h("a",{class:"mi",href:"#admin/novels",text:"Dashboard"}):h("div",{class:"accmems"},h("p",{class:"eyebrow",style:"margin:6px 6px 4px",text:"Your memberships"}),
-      ...(rows.length?rows:[h("p",{class:"note",style:"margin:0 6px 6px",text:"None yet. Join a tier on Patreon with this same email to unlock chapters."})]),
+      ...(rows.length?rows:[h("p",{class:"note",style:"margin:0 6px 6px",text:patOn()?"None yet. Join a tier on Patreon, then connect it above.":"None yet. Join a tier on Patreon with this same email to unlock chapters."})]),
       isUrl(S.config.join_url)?h("a",{class:"mi",href:S.config.join_url,target:"_blank",rel:"noopener",text:"Become a supporter ↗"}):null),
     h("button",{type:"button",class:"mi",text:"Sign out",onclick:()=>{closeAcct();logout()}}))}
 function closeAcct(){$("acctMenu").hidden=true;$("acctBtn").setAttribute("aria-expanded","false")}
@@ -1159,7 +1221,8 @@ $("acctBtn").addEventListener("click",()=>{if(!S.email){openAuth("in");return}co
 document.addEventListener("click",e=>{if(!$("acctMenu").hidden&&!e.composedPath().includes($("ddAcct")))closeAcct()});
 async function afterAuth(){S.canEdit=await checkOwner();$("navDash").hidden=!S.canEdit;
   $("who").replaceChildren(S.email?h("span",{},h("span",{class:"muted",text:S.email+" · "}),h("button",{type:"button",text:"Sign out",onclick:logout})):h("button",{type:"button",text:"Owner login",onclick:openLogin}));
-  drawAcct();await refresh()}
+  drawAcct();S.pat=undefined;await refresh();
+  if(S.pat?.connected&&!S.canEdit&&Date.now()-(+LS.get("patSync:"+S.uid,0)||0)>6*3600e3)syncPatreon(false)}
 if(sb)sb.auth.onAuthStateChange((event,session)=>{
   if(event==="PASSWORD_RECOVERY")setTimeout(()=>openPrompt({title:"Choose a new password",label:"New password",value:"",type:"password",async onSave(v){if((v||"").length<6)return"Use at least 6 characters.";const {error}=await sb.auth.updateUser({password:v});if(error)return"Couldn't update it: "+error.message;toast("Password updated. You're signed in.");await afterAuth()}}),300);
   else if(event==="SIGNED_IN"&&S.authReady&&(session?.user?.email||"").toLowerCase()!==S.email)afterAuth().then(()=>route())});
@@ -1548,6 +1611,7 @@ route();
   if(!sb){S.loaded=true;$("count").textContent="0 books";showNotice("This site isn't connected to its database yet. Add the Supabase details in config.js.");renderLibrary();return}
   const ah=location.hash;
   await afterAuth();S.authReady=true;
+  await finishPatreon();
   if(/error_description=/.test(ah)){toast(/expired/i.test(ah)?"That link has expired. Sign in, or ask for a new reset email.":"That link didn't work. Try signing in.");history.replaceState(null,"",location.pathname)}
   else if(/access_token=|type=/.test(ah))history.replaceState(null,"",location.pathname);
   route();
