@@ -1010,3 +1010,4 @@ dialog.tierdlg{width:min(1180px,calc(100vw - 32px))}
 .pattable td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
 .pattable .num{white-space:nowrap}
 @media (max-width:560px){.pattable th:nth-child(2),.pattable td:nth-child(2){display:none}}
+.pwfree{margin:2px 0 0;color:var(--muted)}.pwfree b{color:var(--ink)}

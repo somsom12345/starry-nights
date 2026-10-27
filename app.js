@@ -64,6 +64,9 @@ async function loadPrivate(){
 async function refresh(){try{await loadPublic();await loadPrivate()}catch(e){console.error(e);showNotice("Couldn't load the library. Refresh the page to try again.")}rerender()}
 async function checkOwner(){const {data:{session}}=await sb.auth.getSession();S.session=session;S.uid=session?.user?.id||null;S.email=(session?.user?.email||"").toLowerCase();if(!session)return false;const {data,error}=await sb.rpc("is_owner");return !error&&data===true}
 /* Tiers & access */
+function autoReady(){return S.books.some(b=>"auto_release" in b)}
+function autoMax(bookId){return Math.max(0,...tiersFor(bookId).map(t=>+t.chapters_ahead||0))}
+function isAuto(bookId){const b=S.books.find(x=>x.id===bookId);return !!(b&&b.auto_release&&autoMax(bookId)>0)}
 function tierById(id){return (S.tiers||[]).find(t=>t.id===id)}
 function money(n){n=+n||0;return "$"+(Number.isInteger(n)?n:n.toFixed(2))}
 function activeMine(){const now=Date.now();return(S.mine||[]).filter(m=>m.status==="active"&&(!m.expires_at||Date.parse(m.expires_at)>now))}
@@ -446,6 +449,7 @@ function paywall(t,b,mode,from){const join=t.patreon_url||S.config.join_url;
     h("p",{class:"pwkick",text:mode==="end"?"That was the last free chapter":"Members only"}),
     h("h3",{class:"pwhead",text:mode==="end"?`The story continues for ${t.name} members`:`Chapter ${num(from)} unlocks with ${t.name}`}),
     memberCard(cardData(t,{book:b,from})),
+    S.freeIn&&S.freeIn.book===b.id&&S.freeIn.n>0?h("p",{class:"pwfree"},"Free for everyone after ",h("b",{text:S.freeIn.n+" more chapter"+(S.freeIn.n===1?"":"s")}),"."):null,
     h("p",{class:"pwprice"},h("b",{text:money(t.price)}),` a month on Patreon, or any higher tier${t.book_id?" for "+(b.title||"this novel"):""}.`),
     h("div",{class:"actions pwacts"},isUrl(join)?h("a",{class:"btn primary",href:join,target:"_blank",rel:"noopener",text:"Join on Patreon ↗"}):null,
       !S.email?h("button",{type:"button",class:"btn",text:patOn()?"Already a patron? Sign in":"I'm a member, sign in",onclick:()=>openAuth("in")})
@@ -497,6 +501,7 @@ async function renderReader(id,seq){
   if(seq!==S.seq)return;
   const nav=toc.filter(x=>x.published||x.id===c.id);if(!nav.some(x=>x.id===c.id))nav.push(c);nav.sort((a,b)=>a.number-b.number);
   const i=nav.findIndex(x=>x.id===c.id);const prev=nav[i-1],next=nav[i+1];S.readerNav={prev,next};
+  {const pub=nav.filter(x=>x.published);const tgt=c.locked?c:next;const rn=tgt?pub.filter(x=>+x.number>=+tgt.number).length:0;S.freeIn=isAuto(c.book_id)&&tgt?{book:c.book_id,n:autoMax(c.book_id)-rn+1}:null}
   if(c.published&&!c.locked){LS.set("last:"+c.book_id,{id:c.id,number:c.number});
     const vk="v:"+c.id+":"+today();if(!S.canEdit&&!LS.get(vk,false)){LS.set(vk,true);sb.rpc("record_view",{p_book:c.book_id}).then(()=>{},()=>{})}}
   document.title=`Ch. ${num(c.number)}${c.title?": "+c.title:""} · ${b.title}`;
@@ -555,7 +560,8 @@ function fillTierSel(bookId,tierId){const sel=$("chTier");
   if(!S.memReady){sel.replaceChildren(h("option",{value:"",text:"Free (tiers not set up yet)"}));sel.disabled=true;$("chTierHint").textContent="Run update-memberships.sql in Supabase to lock chapters to tiers.";return}
   sel.disabled=false;const ts=tiersFor(bookId);
   sel.replaceChildren(h("option",{value:"",text:"Free — everyone can read"}),...ts.map(t=>h("option",{value:t.id,selected:t.id===tierId?true:null,text:t.name+" ("+money(t.price)+")"+(t.book_id?"":" · all novels")})));
-  const hint=()=>{const t=tierById(sel.value);$("chTierHint").textContent=t?`Locked. Readers need ${t.name} or a higher tier.`:ts.length?"Free chapters can be read by everyone.":"No tiers for this novel yet. Add them under Subscriptions → Tiers."};hint();sel.onchange=hint}
+  const hint=()=>{const t=tierById(sel.value);$("chTierHint").textContent=t?`Locked. Readers need ${t.name} or a higher tier.`:ts.length?"Free chapters can be read by everyone.":"No tiers for this novel yet. Add them under Subscriptions → Tiers."};hint();sel.onchange=hint;
+  if(isAuto(bookId)){sel.disabled=true;$("chTierHint").textContent=`Automatic: published chapters stay ${autoMax(bookId)} ahead of free readers, so this is set for you when you publish.`}}
 $("chBookSel").addEventListener("change",async e=>{const e2=S.editChapter;if(!e2||e2.id)return;e2.bookId=e.target.value;let toc=[];try{toc=await loadToc(e2.bookId)}catch{}
   $("chNum").value=toc.length?Math.floor(Math.max(...toc.map(x=>+x.number)))+1:1;fillTierSel(e2.bookId,"");chCrumbs()});
 function chCrumbs(){const e=S.editChapter;const b=S.books.find(x=>x.id===e?.bookId);
@@ -713,6 +719,7 @@ function adminCfg(col){
       {key:"novel",label:"Novel",cell:t=>h("span",{text:t.book_id?bookTitle(t.book_id):"All novels"})},
       {key:"description",label:"Description",nosort:true,cell:t=>h("span",{class:"muted clamp1",text:t.description||"—"})},
       {key:"price",label:"Price",cell:t=>h("span",{class:"num",text:money(t.price)})},
+      ...(autoReady()?[{key:"ahead",label:"Ahead",cell:t=>h("span",{class:+t.chapters_ahead?"num":"muted",text:+t.chapters_ahead?t.chapters_ahead+" ch":"—"})}]:[]),
       ...(patSql()?[{key:"patreon",label:"Patreon tier",nosort:true,cell:t=>{const p=patTiers().find(x=>x.id===String(t.patreon_tier_id||""));return h("span",{class:p?"":"muted",text:p?p.title:"Not linked"})}}]:[])],
     async fetch(st){const q=st.q.trim().toLowerCase();const f=st.filters.book;
       const rows=S.tiers.filter(t=>(!f||(f==="__all"?!t.book_id:t.book_id===f))&&(!q||(t.name||"").toLowerCase().includes(q)));
@@ -884,7 +891,7 @@ function drawTierPreview(){const t=tierDraft();const b=t.book_id?S.books.find(x=
 function fillPatSelect(t){const sel=$("tPat"),wrap=$("tPatWrap");wrap.hidden=!patSql();if(!patSql())return;const pts=patTiers();
   sel.replaceChildren(h("option",{value:"",text:pts.length?"Not linked to Patreon":"Connect Patreon in Settings first"}),...pts.map(p=>h("option",{value:p.id,text:p.title+" ("+money((p.amount_cents||0)/100)+")",selected:String(t?.patreon_tier_id||"")===p.id?true:null})));
   if(t?.patreon_tier_id&&!pts.some(p=>p.id===String(t.patreon_tier_id)))sel.append(h("option",{value:t.patreon_tier_id,selected:true,text:"Old Patreon tier (refresh the list in Settings)"}))}
-function openTier(id){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}const t=id?tierById(id):null;editTier=id||null;fillPatSelect(t);
+function openTier(id){if(!S.memReady){toast("Run update-memberships.sql in Supabase first");return}const t=id?tierById(id):null;editTier=id||null;fillPatSelect(t);$("tAheadWrap").hidden=!autoReady();$("tAhead").value=t&&+t.chapters_ahead?+t.chapters_ahead:"";
   $("tierTitle").textContent=t?"Edit tier":"New tier";$("tName").value=t?.name||"";$("tPrice").value=t?(+t.price):"";$("tUrl").value=t?.patreon_url||"";$("tDesc").value=t?.description||"";$("tErr").textContent="";
   const f=lstate("tiers").filters.book;
   $("tBook").replaceChildren(h("option",{value:"",text:"All novels"}),...[...S.books].sort((a,b)=>(a.title||"").localeCompare(b.title||"")).map(b=>h("option",{value:b.id,text:b.title,selected:(t?t.book_id===b.id:f===b.id)?true:null})));
@@ -911,6 +918,7 @@ $("tierForm").addEventListener("submit",async e=>{e.preventDefault();const err=$
   if(url&&!isUrl(url)){err.textContent="The Patreon link needs to start with https://";$("tUrl").focus();return}
   const row={name,price,book_id:$("tBook").value||null,patreon_url:url,description:$("tDesc").value.trim()};
   if(patSql())row.patreon_tier_id=$("tPat").value||"";
+  if(autoReady()){const a=parseInt($("tAhead").value||"0",10);if(!Number.isFinite(a)||a<0||a>500){err.textContent="Chapters ahead should be a number from 0 to 500.";$("tAhead").focus();return}row.chapters_ahead=a}
   $("tSave").disabled=true;let extra;
   try{extra=await tierCardRow()}catch(x){$("tSave").disabled=false;err.textContent=x?.message==="too_big"?"That picture is too big. Try a smaller one.":"Couldn't upload the picture. Check you're still signed in, then try again.";return}
   row.card=extra.card;
@@ -1050,14 +1058,14 @@ async function uploadImage(file,max,type){const png=type==="image/png";const blo
   const up=await sb.storage.from("covers").upload(path,blob,{contentType:blob.type||"image/jpeg",cacheControl:"31536000",upsert:false});if(up.error)throw up.error;
   return{path,url:sb.storage.from("covers").getPublicUrl(path).data.publicUrl}}
 /* Versions */
-const VLABEL={title:"Title",original_title:"Original title",synopsis:"Synopsis",author:"Author",staff:"Staff",goal:"Goal",status:"Publication",genres:"Genres",access:"Who can read",external_url:"Novel Updates link",read_url:"Reading link",chapters:"Chapter count",featured:"Featured",cover:"Cover colour",cover_url:"Cover",banner_url:"Banner",discord_url:"Discord",discord_supporter_url:"Supporter Discord",paypal:"PayPal"};
+const VLABEL={title:"Title",original_title:"Original title",synopsis:"Synopsis",author:"Author",staff:"Staff",goal:"Goal",status:"Publication",genres:"Genres",access:"Who can read",external_url:"Novel Updates link",read_url:"Reading link",chapters:"Chapter count",featured:"Featured",auto_release:"Automatic release",cover:"Cover colour",cover_url:"Cover",banner_url:"Banner",discord_url:"Discord",discord_supporter_url:"Supporter Discord",paypal:"PayPal"};
 async function loadVersions(id){const r=await sb.from("book_versions").select("id,created_at,data").eq("book_id",id).order("created_at",{ascending:false}).range(0,29);if(r.error)throw r.error;return r.data||[]}
 async function saveVersion(id,data){try{const r=await sb.from("book_versions").insert({book_id:id,data});if(r.error)return;
   const old=await sb.from("book_versions").select("id").eq("book_id",id).order("created_at",{ascending:false}).range(30,300);if(old.data?.length)await sb.from("book_versions").delete().in("id",old.data.map(x=>x.id))}catch(e){console.warn(e)}}
 async function drawVerCount(id){$("edVerN").textContent="";if(!id)return;try{const v=await loadVersions(id);if(S.editBook===id)$("edVerN").textContent=v.length||""}catch{}}
 function changedKeys(a,b){return Object.keys(VLABEL).filter(k=>JSON.stringify(a?.[k]??"")!==JSON.stringify(b?.[k]??""))}
 function applyVersion(d){$("bTitle").value=d.title||"";$("bookDlgTitle").textContent=d.title||"Untitled";$("bOrig").value=d.original_title||"";$("bSyn").value=d.synopsis||"";$("bAuthor").value=d.author||"";
-  $("bStatus").value=d.status||"ongoing";$("bAccess").value=d.access||"free";$("bExt").value=d.external_url||"";$("bUrl").value=d.read_url||$("bUrl").value;$("bChapters").value=d.chapters||"";$("bFeatured").checked=!!d.featured;
+  $("bStatus").value=d.status||"ongoing";$("bAccess").value=d.access||"free";$("bExt").value=d.external_url||"";$("bUrl").value=d.read_url||$("bUrl").value;$("bChapters").value=d.chapters||"";$("bFeatured").checked=!!d.featured;$("bAuto").checked=!!d.auto_release;
   $("bGenres").value=(d.genres||[]).join(", ");drawTagBox();setStaff(d.staff);setGoal(d.goal);$("bDisc").value=d.discord_url||"";$("bDiscSup").value=d.discord_supporter_url||"";$("bPay").value=d.paypal||"";
   if(d.cover)setCover(d.cover);coverPreview();updUrlHint();markDirty()}
 $("edVersions").addEventListener("click",async()=>{const id=S.editBook;const list=$("verList");
@@ -1072,7 +1080,7 @@ $("edVersions").addEventListener("click",async()=>{const id=S.editBook;const lis
 function fillEditor(b){S.editBook=b?.id||null;S.edOpen=true;
   $("bookDlgTitle").textContent=b?.title||"New novel";$("bTitle").value=b?.title||"";$("bOrig").value=b?.original_title||"";$("bAuthor").value=b?.author||"";$("bChapters").value=b?.chapters||"";
   $("bGenres").value=(b?.genres||[]).join(", ");$("bSyn").value=b?.synopsis||"";$("bStatus").value=b?.status||"ongoing";$("bAccess").value=b?.access||"free";$("bExt").value=b?.external_url||"";
-  $("bUrl").value=b?(b.access==="members"?(S.links[b.id]||""):(b.read_url||"")):"";$("bFeatured").checked=!!b?.featured;$("bErr").textContent="";$("bTagIn").value="";
+  $("bUrl").value=b?(b.access==="members"?(S.links[b.id]||""):(b.read_url||"")):"";$("bFeatured").checked=!!b?.featured;$("bAutoWrap").hidden=!autoReady();$("bAuto").checked=!!b?.auto_release;$("bErr").textContent="";$("bTagIn").value="";
   S.coverFile=null;S.coverRemove=false;setCover(b?.cover||Object.keys(COVERS)[S.books.length%9]);updUrlHint();coverPreview();drawTagBox();
   setStaff(b?.staff);setGoal(b?.goal);$("bDisc").value=b?.discord_url||"";$("bDiscSup").value=b?.discord_supporter_url||"";$("bPay").value=b?.paypal||"";
   S.banFile=null;S.banRemove=false;banPreview();drawVerCount(b?.id);
@@ -1106,7 +1114,7 @@ $("bookForm").addEventListener("submit",async e=>{e.preventDefault();const err=$
   const ext=$("bExt").value.trim();if(ext&&!isUrl(ext)){err.textContent="The Novel Updates link needs to start with https://";$("bExt").focus();return}
   const ch=parseInt($("bChapters").value,10);
   const row={title,author:$("bAuthor").value.trim(),genres:parseGenres($("bGenres").value),synopsis:$("bSyn").value.trim(),status:$("bStatus").value,access,
-    chapters:Number.isFinite(ch)&&ch>=0?ch:0,cover:S.cover,featured:$("bFeatured").checked,read_url:access==="free"?url:"",updated_at:new Date().toISOString()};
+    chapters:Number.isFinite(ch)&&ch>=0?ch:0,cover:S.cover,featured:$("bFeatured").checked,...(autoReady()?{auto_release:$("bAuto").checked}:{}),read_url:access==="free"?url:"",updated_at:new Date().toISOString()};
   for(const [id2,label] of [["bDisc","Discord link"],["bDiscSup","Supporter Discord link"]]){const v=$(id2).value.trim();if(v&&!isUrl(v)){err.textContent="The "+label+" needs to start with https://";$(id2).focus();return}}
   const pay=$("bPay").value.trim();if(pay&&!isUrl(pay)&&!/^[A-Z0-9-]{4,}$/i.test(pay)){err.textContent="Use a full PayPal link (https://…) or a product ID like PROD-123.";$("bPay").focus();return}
   if(S.hasExtra!==false)Object.assign(row,{original_title:$("bOrig").value.trim(),external_url:ext});

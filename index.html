@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Playfair+Display:ital,wght@0,400;1,800&family=Courier+Prime:wght@400;700&family=Mrs+Saint+Delafield&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=16">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -215,6 +215,7 @@
       <div class="field"><label for="tBook">Novel</label><select id="tBook"></select></div>
       <div class="field"><label for="tPrice">Price per month <span class="req" aria-hidden="true">*</span></label><input id="tPrice" type="number" min="0" step="0.01" inputmode="decimal" placeholder="5"><span class="hint">Higher-priced tiers also unlock chapters of cheaper tiers for the same novel.</span></div>
       <div class="field"><label for="tUrl">Patreon link</label><input id="tUrl" inputmode="url" placeholder="https://www.patreon.com/…"><span class="hint">Where "Join" sends readers. Uses your main Patreon link if empty.</span></div>
+      <div class="field" id="tAheadWrap" hidden><label for="tAhead">Chapters ahead</label><input id="tAhead" type="number" min="0" max="500" step="1" inputmode="numeric" placeholder="0"><span class="hint">For novels with automatic release: how many chapters ahead of free readers this tier reads. Higher-priced tiers should be further ahead. 0 = not used.</span></div>
       <div class="field full" id="tPatWrap" hidden><label for="tPat">Patreon tier</label><select id="tPat"></select><span class="hint">Patrons on this Patreon tier unlock this tier by themselves once they connect their Patreon. Higher tiers here still unlock cheaper ones for the same novel.</span></div>
       <div class="field full"><label for="tDesc">Description</label><textarea id="tDesc" maxlength="1500" placeholder="Access to 3 advance chapters…" style="min-height:70px"></textarea><span class="hint">Shown in the tier list on the novel's page.</span></div>
     </div>
@@ -335,6 +336,7 @@
       <div class="field"><label for="bUrl">Reading link</label><input id="bUrl" placeholder="https://" inputmode="url"><span class="hint" id="bUrlHint">Where the "Start reading" button goes.</span></div>
       <div class="field"><label for="bChapters">Chapter count</label><input id="bChapters" type="number" min="0" step="1" inputmode="numeric"><span class="hint">Only for books read elsewhere. Chapters on this site are counted for you.</span></div>
       <label class="check"><input type="checkbox" id="bFeatured"> Featured on the home page</label>
+      <div id="bAutoWrap" hidden><label class="check"><input type="checkbox" id="bAuto"> Release free chapters automatically</label><span class="hint">When you publish a new chapter, it's locked and the oldest locked chapter becomes free. How far ahead each tier reads is set under Tiers ("Chapters ahead").</span></div>
       <a class="btn edlist" id="edListCh" href="#admin/chapters">List chapters</a>
       <div class="edgroup"><h3>Discord</h3>
         <div class="field"><label for="bDisc">Regular</label><input id="bDisc" inputmode="url" placeholder="https://discord.gg/…"><span class="hint">Invite or channel link for all readers.</span></div>
@@ -396,6 +398,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
