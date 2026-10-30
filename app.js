@@ -1543,7 +1543,7 @@ function renderAboutAdmin(){S.list=null;const a=JSON.parse(JSON.stringify(aboutD
     if(clean.email&&!/^\S+@\S+\.\S+$/.test(clean.email)){err.textContent="That email address doesn't look right.";return}
     const r=await sb.from("site_config").update({about:clean}).eq("id",1);
     if(r.error){err.textContent=/about/.test(r.error.message||"")?"Run update-about.sql in Supabase first, then save again.":"Couldn't save: "+r.error.message;return}
-    S.config.about=clean;dirty=false;dot.hidden=true;toast("About page saved")};
+    S.config.about=clean;dirty=false;dot.hidden=true;drawDiscord();toast("About page saved")};
   fillEl($("amain"),crumbs("About page"),
     h("div",{class:"ahead"},h("h1",{text:"About page"}),h("a",{class:"btn sm",href:"#about",target:"_blank",rel:"noopener",text:"View page ↗"}),dot,h("button",{type:"button",class:"btn primary",style:"margin-left:auto",text:"Save changes",onclick:save})),
     h("p",{class:"aintro",text:"Everything on your About us page. Leave a field as it is to keep the starter text, and change anything that doesn't fit."}),err,
@@ -1610,7 +1610,8 @@ window.addEventListener("hashchange",route);
 /* ---------- Wiring ---------- */
 for(const d of document.querySelectorAll("dialog")){d.addEventListener("click",e=>{if((e.target===d&&d.id!=="impDlg")||e.target.closest("[data-close]"))d.close()})}
 function setLogo(n){const w=n.trim().split(/\s+/);const caps=w.length>=3?w.pop():"";$("logoScript").textContent=w.join(" ").toLowerCase();$("logoCaps").textContent=caps;$("logoCaps").hidden=!caps;$("brandLink").setAttribute("aria-label",n+", home")}
-function applyConfig(){const n=siteName();$("siteName").textContent=n;setLogo(n);if(!/^(book|read|admin)$/.test(S.route.name))document.title=n;$("hq").placeholder="Search "+(S.books.length?S.books.length+" titles":"titles")+", authors or genres";$("tagline").textContent=S.config.tagline||DEFAULT_TAG;$("footName").textContent="© "+new Date().getFullYear()+" "+n}
+function drawDiscord(){let u="";try{u=aboutData().discord||""}catch{}const ok=isUrl(u);$("discordBtn").hidden=!ok;$("footDiscordWrap").hidden=!ok;if(ok){$("discordBtn").href=u;$("footDiscord").href=u}}
+function applyConfig(){const n=siteName();$("siteName").textContent=n;setLogo(n);if(!/^(book|read|admin)$/.test(S.route.name))document.title=n;$("hq").placeholder="Search "+(S.books.length?S.books.length+" titles":"titles")+", authors or genres";$("tagline").textContent=S.config.tagline||DEFAULT_TAG;$("footName").textContent="© "+new Date().getFullYear()+" "+n;drawDiscord()}
 
 S.hotWin=LS.get("hotWin",7);
 route();
