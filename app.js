@@ -309,6 +309,7 @@ async function renderBook(id,seq){
     h("div",{class:"detail"},cover(b,true),h("div",{style:"min-width:0"},h("h2",{text:b.title}),b.original_title?h("p",{class:"orig",lang:"und",text:b.original_title}):null,b.author?h("p",{class:"by",text:"by "+b.author}):null,
       staff.length?h("p",{class:"staffline"},...staff.flatMap((p,i)=>[i?" · ":"",h("span",{class:"muted",text:p.role+": "}),p.name])):null,
       h("div",{class:"tags"},...(b.genres||[]).map(g=>h("button",{type:"button",class:"tag",title:"Browse "+g,text:g,onclick:()=>browseGenre(g)}))),
+      dayRow(b),
       h("dl",{class:"facts"},h("div",{},h("dt",{text:"Status"}),h("dd",{},pill(b.status||"ongoing",STATUS[b.status]||"Ongoing"))),h("div",{},h("dt",{text:"Chapters"}),h("dd",{class:"mono",style:"color:var(--ink);font-size:15px",text:n||"–"}))),
       b.synopsis?h("p",{class:"syn",text:b.synopsis}):h("p",{class:"syn note",text:"No synopsis yet."}),goal,acts)),tocBox].filter(Boolean));
   let all=null;try{all=await loadToc(id)}catch(e){console.warn(e)}
@@ -347,7 +348,7 @@ async function renderBook(id,seq){
     h("input",{type:"number",min:"0",step:"any",placeholder:"Go to ch.","aria-label":"Go to chapter number",id:"tocJump"}),h("button",{type:"submit",class:"btn sm",text:"Go"})):null;
   const ts=tiersFor(id);
   if(ts.length){const mineT=new Set(activeMine().map(m=>m.tier_id));
-    tocBox.before(h("section",{class:"tiersec"},h("div",{class:"tochead"},h("h2",{},"Support tiers")),
+    tocBox.before(h("section",{class:"tiersec"},h("div",{class:"tochead"},h("h2",{},"Support tiers"),h("a",{class:"more",href:"#tiers/"+b.id,text:"See tier cards →"})),
       h("div",{class:"tiergrid"},...ts.map(t=>h("article",{class:"tiercard"+(mineT.has(t.id)?" mine":"")},
         h("div",{class:"tname"},h("b",{text:t.name}),mineT.has(t.id)?h("span",{class:"pill p-published",text:"Your tier"}):null),
         h("div",{class:"tprice"},h("span",{text:money(t.price)}),h("span",{class:"muted",text:" / month"})),
@@ -410,6 +411,52 @@ function patPanel(){const box=h("section",{class:"apanel patpanel"});
       h("button",{type:"button",class:"btn",text:"Reconnect",onclick:()=>connectPatreon("creator")})));
   return box}
 /* ---------- Reader ---------- */
+
+/* ---------- Free schedule ---------- */
+const DAYS=["mon","tue","wed","thu","fri","sat","sun"];
+function schedReady(){return S.books.some(b=>"free_days" in b)}
+function todayKey(){return DAYS[(new Date().getDay()+6)%7]}
+function freeDays(b){return Array.isArray(b?.free_days)?b.free_days.filter(d=>DAYS.includes(d)):[]}
+const DAYNAME={mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday",sun:"Sunday"};
+function daysText(on){const k=DAYS.filter(d=>on.includes(d)).join(",");
+  if(k===DAYS.join(","))return"Every day";if(k==="mon,tue,wed,thu,fri")return"Weekdays";if(k==="sat,sun")return"Weekends";
+  const n=DAYS.filter(d=>on.includes(d)).map(d=>d[0].toUpperCase()+d.slice(1,3));return n.length>1?n.slice(0,-1).join(", ")+" & "+n.at(-1):n[0]}
+function nextFree(on){const t=DAYS.indexOf(todayKey());for(let i=0;i<7;i++){const d=DAYS[(t+i)%7];if(on.includes(d))return i===0?"today":i===1?"tomorrow":DAYNAME[d]}return""}
+function dayRow(b){const on=freeDays(b);if(!on.length)return null;const t=todayKey();const nx=nextFree(on);
+  return h("div",{class:"sched"},
+    h("div",{class:"schedtxt"},h("span",{class:"slbl",text:"Free chapters"}),h("b",{text:daysText(on)}),nx?h("span",{class:"snext"+(nx==="today"?" now":"")},"Next: ",h("strong",{text:nx})):null),
+    h("ol",{class:"constel","aria-label":"Free release days: "+DAYS.filter(d=>on.includes(d)).map(d=>DAYNAME[d]).join(", ")},
+      ...DAYS.map(d=>h("li",{class:(on.includes(d)?"on":"")+(d===t?" today":"")},h("span",{class:"node","aria-hidden":"true"}),h("span",{class:"dl",text:d.slice(0,2)}),h("span",{class:"sr",text:DAYNAME[d]+(on.includes(d)?": free chapters":"")+(d===t?" (today)":"")})))))}
+function setDays(list){$("bDays").replaceChildren(...DAYS.map(d=>h("button",{type:"button",class:"dayb","aria-pressed":String((list||[]).includes(d)),text:d.toUpperCase(),onclick:e=>{const b=e.currentTarget;b.setAttribute("aria-pressed",String(b.getAttribute("aria-pressed")!=="true"));markDirty()}})))}
+function getDays(){return[...$("bDays").querySelectorAll("button")].map((b,i)=>b.getAttribute("aria-pressed")==="true"?DAYS[i]:null).filter(Boolean)}
+
+/* ---------- Tiers page ---------- */
+function renderTiers(id){const el=$("tiersPage");document.title="Membership tiers · "+siteName();
+  if(!S.loaded){el.replaceChildren(h("p",{class:"count pad",text:"Loading"}));return}
+  const act=S.canEdit?[]:activeMine().map(m=>tierById(m.tier_id)).filter(Boolean);
+  const join=S.config.join_url;
+  const cta=S.canEdit?h("a",{class:"btn",href:"#admin/tiers",text:"Edit tiers in the Dashboard"})
+    :!S.email?h("button",{type:"button",class:"btn primary",text:"Sign in",onclick:()=>openAuth("in")})
+    :patOn()&&!S.pat?.connected?h("button",{type:"button",class:"btn primary",text:"Connect Patreon",onclick:()=>connectPatreon("reader")})
+    :patOn()?h("button",{type:"button",class:"btn",text:"Check my Patreon again",onclick:()=>syncPatreon(true)}):null;
+  const status=h("div",{class:"tpstatus"},h("span",{class:"tpsic","aria-hidden":"true",text:"✦"}),h("div",{},h("p",{class:"eyebrow",style:"margin:0",text:"Your membership"}),
+    S.canEdit?h("b",{text:"Owner · you can read everything"}):act.length?h("b",{text:act.map(t=>t.name).join(", ")}):h("b",{class:"muted",text:S.email?"None yet":"Sign in to see yours"})));
+  const head=h("div",{class:"tphead"},h("div",{},h("h1",{text:"Membership tiers"}),h("p",{class:"muted",text:"Keep the next chapter within reach. Join on Patreon, then connect it here once."}),h("div",{class:"actions"},cta,!S.canEdit&&isUrl(join)?h("a",{class:"btn",href:join,target:"_blank",rel:"noopener",text:"Our Patreon ↗"}):null)),status);
+  const books=[...S.books].sort((a,b)=>(a.title||"").localeCompare(b.title||""));
+  const groups=[{key:"all",title:"Every novel",book:null,tiers:S.tiers.filter(t=>!t.book_id)},...books.map(b=>({key:b.id,title:b.title,book:b,tiers:S.tiers.filter(t=>t.book_id===b.id)}))]
+    .filter(g=>g.tiers.length&&(!id||g.key==="all"||g.key===id));
+  const tile=(t,b)=>{const mine=!S.canEdit&&S.email&&canReadTier(t.id);const exact=act.some(x=>x.id===t.id);const j=t.patreon_url||join;
+    return h("article",{class:"ttile"+(exact?" mine":"")},memberCard(cardData(t,{book:b})),
+      h("div",{class:"ttinfo"},h("div",{},h("h3",{text:t.name}),h("p",{class:"muted",text:(+t.chapters_ahead?t.chapters_ahead+" chapters ahead · ":"")+(t.book_id?(b?.title||"One novel"):"Every novel")})),
+        h("div",{class:"ttprice"},h("b",{text:money(t.price)}),h("span",{class:"muted",text:"/ month"}))),
+      exact?h("span",{class:"btn ttbtn done",text:"✓ Your tier"}):mine?h("span",{class:"btn ttbtn done",text:"✓ Included in your membership"})
+        :isUrl(j)?h("a",{class:"btn primary ttbtn",href:j,target:"_blank",rel:"noopener",text:"Join on Patreon ↗"}):null)};
+  const body=groups.length?groups.map(g=>h("section",{class:"tgroup",id:"tg-"+g.key},
+      h("div",{class:"tghead"},g.book?h("a",{class:"tgcov",href:"#book/"+g.book.id,"aria-label":g.title},thumb(g.book)):h("span",{class:"tgall","aria-hidden":"true",text:"✦"}),
+        h("div",{},h("h2",{},g.book?h("a",{href:"#book/"+g.book.id,text:g.title}):g.title),h("p",{class:"muted",text:g.book?"Tiers for this novel only":"One membership for every novel on the site"}))),
+      h("div",{class:"tgrid"},...[...g.tiers].sort((a,b)=>+a.price-+b.price).map(t=>tile(t,g.book||(id?S.books.find(x=>x.id===id):null))))))
+    :[emptyBox("No tiers yet",S.canEdit?"Create tiers in the Dashboard under Subscriptions → Tiers.":"Membership tiers are coming soon.")];
+  fillEl(el,head,id?h("p",{class:"tpfilter"},"Showing tiers for ",h("b",{text:S.books.find(x=>x.id===id)?.title||"this novel"})," · ",h("a",{href:"#tiers",text:"See every novel's tiers"})):null,...body)}
 /* ---------- Members card (one per tier) ---------- */
 const CARD_STORY="Thank you for reading this far. Members get the next chapters early, and every pledge keeps the translations coming.";
 const CARD_STICK="Support us\nearly access";
@@ -1058,14 +1105,14 @@ async function uploadImage(file,max,type){const png=type==="image/png";const blo
   const up=await sb.storage.from("covers").upload(path,blob,{contentType:blob.type||"image/jpeg",cacheControl:"31536000",upsert:false});if(up.error)throw up.error;
   return{path,url:sb.storage.from("covers").getPublicUrl(path).data.publicUrl}}
 /* Versions */
-const VLABEL={title:"Title",original_title:"Original title",synopsis:"Synopsis",author:"Author",staff:"Staff",goal:"Goal",status:"Publication",genres:"Genres",access:"Who can read",external_url:"Novel Updates link",read_url:"Reading link",chapters:"Chapter count",featured:"Featured",auto_release:"Automatic release",cover:"Cover colour",cover_url:"Cover",banner_url:"Banner",discord_url:"Discord",discord_supporter_url:"Supporter Discord",paypal:"PayPal"};
+const VLABEL={title:"Title",original_title:"Original title",synopsis:"Synopsis",author:"Author",staff:"Staff",goal:"Goal",status:"Publication",genres:"Genres",access:"Who can read",external_url:"Novel Updates link",read_url:"Reading link",chapters:"Chapter count",featured:"Featured",auto_release:"Automatic release",free_days:"Free days",cover:"Cover colour",cover_url:"Cover",banner_url:"Banner",discord_url:"Discord",discord_supporter_url:"Supporter Discord",paypal:"PayPal"};
 async function loadVersions(id){const r=await sb.from("book_versions").select("id,created_at,data").eq("book_id",id).order("created_at",{ascending:false}).range(0,29);if(r.error)throw r.error;return r.data||[]}
 async function saveVersion(id,data){try{const r=await sb.from("book_versions").insert({book_id:id,data});if(r.error)return;
   const old=await sb.from("book_versions").select("id").eq("book_id",id).order("created_at",{ascending:false}).range(30,300);if(old.data?.length)await sb.from("book_versions").delete().in("id",old.data.map(x=>x.id))}catch(e){console.warn(e)}}
 async function drawVerCount(id){$("edVerN").textContent="";if(!id)return;try{const v=await loadVersions(id);if(S.editBook===id)$("edVerN").textContent=v.length||""}catch{}}
 function changedKeys(a,b){return Object.keys(VLABEL).filter(k=>JSON.stringify(a?.[k]??"")!==JSON.stringify(b?.[k]??""))}
 function applyVersion(d){$("bTitle").value=d.title||"";$("bookDlgTitle").textContent=d.title||"Untitled";$("bOrig").value=d.original_title||"";$("bSyn").value=d.synopsis||"";$("bAuthor").value=d.author||"";
-  $("bStatus").value=d.status||"ongoing";$("bAccess").value=d.access||"free";$("bExt").value=d.external_url||"";$("bUrl").value=d.read_url||$("bUrl").value;$("bChapters").value=d.chapters||"";$("bFeatured").checked=!!d.featured;$("bAuto").checked=!!d.auto_release;
+  $("bStatus").value=d.status||"ongoing";$("bAccess").value=d.access||"free";$("bExt").value=d.external_url||"";$("bUrl").value=d.read_url||$("bUrl").value;$("bChapters").value=d.chapters||"";$("bFeatured").checked=!!d.featured;$("bAuto").checked=!!d.auto_release;setDays(Array.isArray(d.free_days)?d.free_days:[]);
   $("bGenres").value=(d.genres||[]).join(", ");drawTagBox();setStaff(d.staff);setGoal(d.goal);$("bDisc").value=d.discord_url||"";$("bDiscSup").value=d.discord_supporter_url||"";$("bPay").value=d.paypal||"";
   if(d.cover)setCover(d.cover);coverPreview();updUrlHint();markDirty()}
 $("edVersions").addEventListener("click",async()=>{const id=S.editBook;const list=$("verList");
@@ -1080,7 +1127,7 @@ $("edVersions").addEventListener("click",async()=>{const id=S.editBook;const lis
 function fillEditor(b){S.editBook=b?.id||null;S.edOpen=true;
   $("bookDlgTitle").textContent=b?.title||"New novel";$("bTitle").value=b?.title||"";$("bOrig").value=b?.original_title||"";$("bAuthor").value=b?.author||"";$("bChapters").value=b?.chapters||"";
   $("bGenres").value=(b?.genres||[]).join(", ");$("bSyn").value=b?.synopsis||"";$("bStatus").value=b?.status||"ongoing";$("bAccess").value=b?.access||"free";$("bExt").value=b?.external_url||"";
-  $("bUrl").value=b?(b.access==="members"?(S.links[b.id]||""):(b.read_url||"")):"";$("bFeatured").checked=!!b?.featured;$("bAutoWrap").hidden=!autoReady();$("bAuto").checked=!!b?.auto_release;$("bErr").textContent="";$("bTagIn").value="";
+  $("bUrl").value=b?(b.access==="members"?(S.links[b.id]||""):(b.read_url||"")):"";$("bFeatured").checked=!!b?.featured;$("bAutoWrap").hidden=!autoReady();$("bDaysWrap").hidden=!schedReady();setDays(freeDays(b));$("bAuto").checked=!!b?.auto_release;$("bErr").textContent="";$("bTagIn").value="";
   S.coverFile=null;S.coverRemove=false;setCover(b?.cover||Object.keys(COVERS)[S.books.length%9]);updUrlHint();coverPreview();drawTagBox();
   setStaff(b?.staff);setGoal(b?.goal);$("bDisc").value=b?.discord_url||"";$("bDiscSup").value=b?.discord_supporter_url||"";$("bPay").value=b?.paypal||"";
   S.banFile=null;S.banRemove=false;banPreview();drawVerCount(b?.id);
@@ -1114,7 +1161,7 @@ $("bookForm").addEventListener("submit",async e=>{e.preventDefault();const err=$
   const ext=$("bExt").value.trim();if(ext&&!isUrl(ext)){err.textContent="The Novel Updates link needs to start with https://";$("bExt").focus();return}
   const ch=parseInt($("bChapters").value,10);
   const row={title,author:$("bAuthor").value.trim(),genres:parseGenres($("bGenres").value),synopsis:$("bSyn").value.trim(),status:$("bStatus").value,access,
-    chapters:Number.isFinite(ch)&&ch>=0?ch:0,cover:S.cover,featured:$("bFeatured").checked,...(autoReady()?{auto_release:$("bAuto").checked}:{}),read_url:access==="free"?url:"",updated_at:new Date().toISOString()};
+    chapters:Number.isFinite(ch)&&ch>=0?ch:0,cover:S.cover,featured:$("bFeatured").checked,...(autoReady()?{auto_release:$("bAuto").checked}:{}),...(schedReady()?{free_days:getDays()}:{}),read_url:access==="free"?url:"",updated_at:new Date().toISOString()};
   for(const [id2,label] of [["bDisc","Discord link"],["bDiscSup","Supporter Discord link"]]){const v=$(id2).value.trim();if(v&&!isUrl(v)){err.textContent="The "+label+" needs to start with https://";$(id2).focus();return}}
   const pay=$("bPay").value.trim();if(pay&&!isUrl(pay)&&!/^[A-Z0-9-]{4,}$/i.test(pay)){err.textContent="Use a full PayPal link (https://…) or a product ID like PROD-123.";$("bPay").focus();return}
   if(S.hasExtra!==false)Object.assign(row,{original_title:$("bOrig").value.trim(),external_url:ext});
@@ -1569,9 +1616,10 @@ function parseHash(){const raw=decodeURIComponent(location.hash.replace(/^#\/?/,
   if(name==="manage"&&id)return{name:"admin",col:"chapters",id};
   if(name==="dashboard")return{name:"admin",col:"novels"};
   if((name==="collection"||name==="reader")&&id)return{name,id};
+  if(name==="tiers")return{name,id:id||null};
   if(name==="browse"||name==="collections"||name==="about")return{name};return{name:"home"}}
 function go(hash){if(location.hash.replace(/^#/,"")===hash)route();else location.hash=hash}
-const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin",collections:"collsPage",collection:"collPage",reader:"userPage",about:"aboutPage"};
+const VIEWS={home:"home",browse:"library",book:"bookPage",read:"reader",admin:"admin",collections:"collsPage",collection:"collPage",reader:"userPage",about:"aboutPage",tiers:"tiersPage"};
 function route(){
   const prev=S.route;let r=parseHash();
   const same=(a,b)=>a.name===b.name&&a.col===b.col&&a.id===b.id;
@@ -1587,7 +1635,7 @@ function route(){
   S.route=r;const seq=++S.seq;
   for(const [k,id] of Object.entries(VIEWS))$(id).hidden=k!==r.name;
   document.body.classList.toggle("reading",r.name==="read");document.body.classList.toggle("browsing",r.name==="browse");document.body.classList.toggle("is-admin",r.name==="admin");
-  const cur={navHome:r.name==="home",navBrowse:r.name==="browse",navColls:/^(collections|collection|reader)$/.test(r.name),navAbout:r.name==="about",navDash:r.name==="admin"};
+  const cur={navHome:r.name==="home",navBrowse:r.name==="browse",navColls:/^(collections|collection|reader)$/.test(r.name),navAbout:r.name==="about",navTiers:r.name==="tiers",navDash:r.name==="admin"};
   for(const [id,on] of Object.entries(cur))on?$(id).setAttribute("aria-current","page"):$(id).removeAttribute("aria-current");
   closeResults();if(r.name==="browse"&&$("hq").value!==S.q)$("hq").value=S.q;
   applyReaderPrefs(r.name==="read");
@@ -1598,13 +1646,14 @@ function route(){
     else if(r.name==="book")renderBook(r.id,seq);
     else if(r.name==="collections")renderCollections(seq);
     else if(r.name==="about")renderAbout();
+    else if(r.name==="tiers")renderTiers(r.id);
     else if(r.name==="collection")renderCollection(r.id,seq);
     else if(r.name==="reader")renderUser(r.id,seq);
     else if(r.name==="read"){if(sb)renderReader(r.id,seq)}}
 }
 function rerender(){const r=S.route,seq=S.seq;
   if(r.name==="browse")renderLibrary();else if(r.name==="home")renderHome(seq);else if(r.name==="admin"){if((r.col==="chapter"&&S.chOpen)||r.col==="about"){}else if(r.col==="novels"&&r.id&&S.edOpen&&(r.id==="new"||S.books.some(b=>b.id===r.id))){if(r.id!=="new"&&!S.edDirty)edMeta(S.books.find(b=>b.id===r.id));refreshList()}else renderAdmin(r.col,(r.col==="novels"||r.col==="chapter")?r.id:null)}
-  else if(r.name==="book")renderBook(r.id,seq);else if(r.name==="collections")renderCollections(seq);else if(r.name==="about")renderAbout()}
+  else if(r.name==="book")renderBook(r.id,seq);else if(r.name==="collections")renderCollections(seq);else if(r.name==="about")renderAbout();else if(r.name==="tiers")renderTiers(r.id)}
 window.addEventListener("hashchange",route);
 
 /* ---------- Wiring ---------- */

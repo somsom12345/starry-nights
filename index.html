@@ -12,7 +12,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Damion&family=Gloock&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,600;1,7..72,400&family=Playfair+Display:ital,wght@0,400;1,800&family=Courier+Prime:wght@400;700&family=Mrs+Saint+Delafield&family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="styles.css?v=18">
+<link rel="stylesheet" href="styles.css?v=20">
 <script>try{document.documentElement.setAttribute("data-theme",JSON.parse(localStorage.getItem("sn:siteTheme"))||"dark")}catch(e){document.documentElement.setAttribute("data-theme","dark")}</script>
 </head>
 <body>
@@ -30,6 +30,7 @@
     <nav class="hnav" aria-label="Main">
       <a href="#" id="navHome" class="nh">Home</a>
       <a href="#browse" id="navBrowse">Browse</a>
+      <a href="#tiers" id="navTiers">Tiers</a>
       <a href="#collections" id="navColls" class="nc">Collections</a>
       <a href="#about" id="navAbout" class="nc">About</a>
       <a href="#admin/novels" id="navDash" hidden>Dashboard</a>
@@ -108,6 +109,7 @@
 
   <section id="bookPage" class="bookpage" hidden></section>
   <section id="aboutPage" class="ab" hidden></section>
+  <section id="tiersPage" class="tierspage" hidden></section>
   <section id="collsPage" class="community" hidden></section>
   <section id="collPage" class="community" hidden></section>
   <section id="userPage" class="community" hidden></section>
@@ -337,6 +339,7 @@
       <div class="field"><label for="bUrl">Reading link</label><input id="bUrl" placeholder="https://" inputmode="url"><span class="hint" id="bUrlHint">Where the "Start reading" button goes.</span></div>
       <div class="field"><label for="bChapters">Chapter count</label><input id="bChapters" type="number" min="0" step="1" inputmode="numeric"><span class="hint">Only for books read elsewhere. Chapters on this site are counted for you.</span></div>
       <label class="check"><input type="checkbox" id="bFeatured"> Featured on the home page</label>
+      <div id="bDaysWrap" hidden><span class="lbl">Free chapters come out on</span><div class="daypick" id="bDays" role="group" aria-label="Free release days"></div><span class="hint">Shown on the novel's page as "Free at". Leave all off to hide it.</span></div>
       <div id="bAutoWrap" hidden><label class="check"><input type="checkbox" id="bAuto"> Release free chapters automatically</label><span class="hint">When you publish a new chapter, it's locked and the oldest locked chapter becomes free. How far ahead each tier reads is set under Tiers ("Chapters ahead").</span></div>
       <a class="btn edlist" id="edListCh" href="#admin/chapters">List chapters</a>
       <div class="edgroup"><h3>Discord</h3>
@@ -399,6 +402,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=20"></script>
 </body>
 </html>
