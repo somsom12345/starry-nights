@@ -1188,7 +1188,6 @@ function setAuthMode(m){authMode=m;const up=m==="up";
 function openAuth(mode,intent){S.authIntent=intent||null;setAuthMode(mode||"in");if(!$("loginDlg").open)$("loginDlg").showModal();$("lEmail").focus()}
 function openLogin(){openAuth("in","admin")}
 $("authIn").addEventListener("click",()=>setAuthMode("in"));$("authUp").addEventListener("click",()=>setAuthMode("up"));
-$("ownerLogin").addEventListener("click",openLogin);
 function siteUrl(){return location.origin+location.pathname}
 $("authForgot").addEventListener("click",async()=>{const email=$("lEmail").value.trim();$("lErr").textContent="";$("lOk").textContent="";
   if(!/^\S+@\S+\.\S+$/.test(email)){$("lErr").textContent="Type your email above first, then click Forgot password.";$("lEmail").focus();return}
@@ -1228,7 +1227,7 @@ function closeAcct(){$("acctMenu").hidden=true;$("acctBtn").setAttribute("aria-e
 $("acctBtn").addEventListener("click",()=>{if(!S.email){openAuth("in");return}const p=$("acctMenu");const open=p.hidden;if(open){acctMenu();p.hidden=false;$("acctBtn").setAttribute("aria-expanded","true")}else closeAcct()});
 document.addEventListener("click",e=>{if(!$("acctMenu").hidden&&!e.composedPath().includes($("ddAcct")))closeAcct()});
 async function afterAuth(){S.canEdit=await checkOwner();$("navDash").hidden=!S.canEdit;
-  $("who").replaceChildren(S.email?h("span",{},h("span",{class:"muted",text:S.email+" · "}),h("button",{type:"button",text:"Sign out",onclick:logout})):h("button",{type:"button",text:"Owner login",onclick:openLogin}));
+  $("who").replaceChildren(S.email?h("span",{},h("span",{class:"muted",text:S.email+" · "}),h("button",{type:"button",text:"Sign out",onclick:logout})):"");
   drawAcct();S.pat=undefined;await refresh();
   if(S.pat?.connected&&!S.canEdit&&Date.now()-(+LS.get("patSync:"+S.uid,0)||0)>6*3600e3)syncPatreon(false)}
 if(sb)sb.auth.onAuthStateChange((event,session)=>{
